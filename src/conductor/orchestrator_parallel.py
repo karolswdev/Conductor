@@ -138,7 +138,7 @@ class ParallelOrchestrator:
         """Run authentication flow using first browser."""
         if self.app:
             self.app.notify(
-                "Please log in to Claude Code in the browser",
+                "Browser opening - log in to Claude Code, then press Enter in terminal",
                 title="Authentication",
                 timeout=10,
             )
