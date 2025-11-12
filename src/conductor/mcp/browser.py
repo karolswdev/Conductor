@@ -364,9 +364,12 @@ class BrowserController:
             logger.error(f"Get URL failed: {e}")
             raise MCPError(f"Failed to get current URL: {e}") from e
 
-    async def create_tab(self) -> int:
+    async def create_tab(self, url: Optional[str] = None) -> int:
         """
-        Create a new browser tab.
+        Create a new browser tab, optionally navigating to a URL.
+
+        Args:
+            url: Optional URL to navigate to in the new tab
 
         Returns:
             Index of the new tab
@@ -375,20 +378,22 @@ class BrowserController:
             MCPError: If tab creation fails
         """
         try:
-            logger.debug("Creating new tab")
+            logger.debug(f"Creating new tab{f' with URL {url}' if url else ''}")
+
+            params = {"action": "new"}
+            if url:
+                params["url"] = url
 
             result = await self.client.call_tool(
                 "browser_tabs",
-                {
-                    "action": "new",
-                },
+                params,
             )
 
             # Get the list of tabs to find the new one
             tabs = await self.list_tabs()
             new_tab_index = len(tabs) - 1
 
-            logger.info(f"Created new tab at index {new_tab_index}")
+            logger.info(f"Created new tab at index {new_tab_index}{f' navigated to {url}' if url else ''}")
             return new_tab_index
 
         except Exception as e:
