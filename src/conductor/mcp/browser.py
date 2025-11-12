@@ -233,7 +233,18 @@ class BrowserController:
                 {"selector": selector},
             )
 
-            return result.get("text", "")
+            # Handle MCP response format
+            if "content" in result and isinstance(result["content"], list):
+                for item in result["content"]:
+                    if hasattr(item, "text"):
+                        return item.text
+                    elif isinstance(item, dict) and "text" in item:
+                        return item["text"]
+                return ""
+            elif "text" in result:
+                return result["text"]
+            else:
+                return str(result)
 
         except Exception as e:
             logger.error(f"Get text failed: {e}")
@@ -255,7 +266,20 @@ class BrowserController:
                 {"expression": "window.location.href"},
             )
 
-            return result.get("result", "")
+            # Handle MCP response format
+            if "content" in result and isinstance(result["content"], list):
+                # MCP returns content as list of TextContent/ImageContent objects
+                for item in result["content"]:
+                    if hasattr(item, "text"):
+                        return item.text
+                    elif isinstance(item, dict) and "text" in item:
+                        return item["text"]
+                return ""
+            elif "result" in result:
+                return str(result["result"])
+            else:
+                logger.warning(f"Unexpected result format: {result}")
+                return str(result)
 
         except Exception as e:
             logger.error(f"Get URL failed: {e}")

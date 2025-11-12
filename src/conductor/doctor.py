@@ -96,15 +96,31 @@ class DoctorDiagnostics:
             await self.mcp_client.connect()
 
             if self.mcp_client.is_connected:
-                self.results.append(
-                    DiagnosticResult(
-                        name="MCP Connection",
-                        status="pass",
-                        message=f"Successfully connected to {self.config.mcp.server_url}",
-                        details=f"Timeout: {self.config.mcp.timeout}s, Retries: {self.config.mcp.max_retries}",
+                # Actually verify by listing tools
+                try:
+                    tools = await self.mcp_client.list_tools()
+                    tool_names = [t["name"] for t in tools]
+
+                    self.results.append(
+                        DiagnosticResult(
+                            name="MCP Connection",
+                            status="pass",
+                            message=f"Successfully connected to {self.config.mcp.server_url}",
+                            details=f"Found {len(tools)} tools: {', '.join(tool_names[:3])}{'...' if len(tools) > 3 else ''}",
+                        )
                     )
-                )
-                console.print("  [green]✓[/green] MCP connection successful")
+                    console.print(f"  [green]✓[/green] MCP connection successful ({len(tools)} tools available)")
+                except Exception as e:
+                    logger.warning(f"Connected but couldn't list tools: {e}")
+                    self.results.append(
+                        DiagnosticResult(
+                            name="MCP Connection",
+                            status="warning",
+                            message=f"Connected but tool listing failed",
+                            details=str(e),
+                        )
+                    )
+                    console.print("  [yellow]![/yellow] MCP connected but tool listing failed")
             else:
                 raise MCPConnectionError("Connection established but not confirmed")
 
@@ -188,22 +204,44 @@ class DoctorDiagnostics:
             # Try to get current URL to confirm navigation
             try:
                 current_url = await self.browser.get_current_url()
-                if "google" in current_url.lower():
-                    url_detail = f"Confirmed at: {current_url}"
-                else:
-                    url_detail = f"Unexpected URL: {current_url}"
-            except:
-                url_detail = "URL verification not available"
 
-            self.results.append(
-                DiagnosticResult(
-                    name="Navigation Test",
-                    status="pass",
-                    message=f"Successfully navigated to {test_url}",
-                    details=url_detail,
+                # Check if we got actual URL data (not mock)
+                if isinstance(current_url, str) and current_url and "mock" not in current_url.lower():
+                    if "google" in current_url.lower():
+                        url_detail = f"Confirmed at: {current_url}"
+                        status = "pass"
+                    else:
+                        url_detail = f"Unexpected URL: {current_url}"
+                        status = "warning"
+                else:
+                    url_detail = f"Got mock/invalid response: {current_url}"
+                    status = "warning"
+
+                self.results.append(
+                    DiagnosticResult(
+                        name="Navigation Test",
+                        status=status,
+                        message=f"Navigated to {test_url}" if status == "pass" else "Navigation may not be real",
+                        details=url_detail,
+                    )
                 )
-            )
-            console.print(f"  [green]✓[/green] Navigation successful")
+
+                if status == "pass":
+                    console.print(f"  [green]✓[/green] Navigation successful and verified")
+                else:
+                    console.print(f"  [yellow]![/yellow] Navigation command sent but verification unclear")
+
+            except Exception as verify_e:
+                logger.warning(f"URL verification failed: {verify_e}")
+                self.results.append(
+                    DiagnosticResult(
+                        name="Navigation Test",
+                        status="warning",
+                        message="Navigation sent but couldn't verify URL",
+                        details=str(verify_e),
+                    )
+                )
+                console.print("  [yellow]![/yellow] Navigation sent but couldn't verify")
 
         except Exception as e:
             self.results.append(
