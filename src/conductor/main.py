@@ -73,6 +73,13 @@ def cli():
     help="Disable TUI (use simple console mode)",
 )
 @click.option(
+    "--parallel",
+    "-p",
+    type=int,
+    default=None,
+    help="Enable parallel execution with N concurrent tasks (1-10)",
+)
+@click.option(
     "--debug",
     is_flag=True,
     help="Enable debug logging",
@@ -85,6 +92,7 @@ def run(
     no_splash: bool,
     headless: bool,
     no_tui: bool,
+    parallel: int | None,
     debug: bool,
 ):
     """
@@ -108,6 +116,13 @@ def run(
             cfg.auth.headless = True
         if repo:
             cfg.default_repository = repo
+        if parallel is not None:
+            if parallel < 1 or parallel > 10:
+                console.print("[red]Error:[/red] Parallel tasks must be between 1 and 10")
+                raise click.Abort()
+            cfg.execution.parallel_mode = True
+            cfg.execution.max_parallel_tasks = parallel
+            console.print(f"[cyan]Parallel execution enabled:[/cyan] {parallel} concurrent tasks")
 
         # Show splash screen (only if not using TUI)
         if cfg.ui.show_splash and no_tui:
@@ -121,9 +136,11 @@ def run(
         # Run orchestrator
         if no_tui:
             # Use simple console orchestrator
+            if cfg.execution.parallel_mode:
+                console.print("[yellow]Note:[/yellow] Parallel mode works best with TUI. Using sequential execution in console mode.")
             asyncio.run(run_orchestrator_simple(cfg, task_list))
         else:
-            # Use TUI orchestrator
+            # Use TUI orchestrator (parallel or sequential based on config)
             asyncio.run(run_orchestrator_tui(cfg, task_list))
 
     except TaskLoadError as e:
@@ -147,10 +164,15 @@ async def run_orchestrator_simple(config, task_list):
 
 
 async def run_orchestrator_tui(config, task_list):
-    """Run the TUI orchestrator."""
-    from conductor.orchestrator_tui import run_with_tui
+    """Run the TUI orchestrator (parallel or sequential based on config)."""
+    if config.execution.parallel_mode:
+        from conductor.orchestrator_parallel import run_with_tui_parallel
 
-    await run_with_tui(config, task_list)
+        await run_with_tui_parallel(config, task_list)
+    else:
+        from conductor.orchestrator_tui import run_with_tui
+
+        await run_with_tui(config, task_list)
 
 
 @cli.command()
