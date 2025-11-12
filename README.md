@@ -307,6 +307,25 @@ npx @anthropic/playwright-mcp
 </details>
 
 <details>
+<summary>Remote browser setup (Mac + Windows PC)</summary>
+
+See the comprehensive [Remote Browser Setup Guide](docs/REMOTE_BROWSER_SETUP.md) for configuring Conductor to control a browser on a different machine.
+
+**Quick setup:**
+
+Windows PC:
+```bash
+npx @playwright/mcp@latest --port 8931 --host 0.0.0.0 --allowed-hosts * --browser msedge
+```
+
+Mac config (`~/.conductor/config.yaml`):
+```yaml
+mcp:
+  server_url: "http://192.168.1.100:8931"  # Your Windows PC IP
+```
+</details>
+
+<details>
 <summary>Unicode characters not displaying</summary>
 
 Ensure your terminal supports UTF-8:
