@@ -1,0 +1,297 @@
+CONDUCTOR PARALLEL EXECUTION - FEATURE COMPARISON
+===================================================
+
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                    SEQUENTIAL vs PARALLEL EXECUTION                           │
+├───────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│ SEQUENTIAL (Default)           │ PARALLEL (Configurable)                     │
+│ ─────────────────────────────  │ ──────────────────────────────              │
+│ • Single MCP client            │ • N MCP clients (pool)                      │
+│ • Single browser               │ • N browser instances                       │
+│ • 1 task at a time             │ • 1-10 tasks concurrently                   │
+│ • Simple for-loop execution    │ • asyncio.gather() with semaphore           │
+│ • Fast startup                 │ • More resource usage                       │
+│ • Resource efficient           │ • Better throughput                         │
+│ • Good for small task lists    │ • Good for large task lists                 │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+FILE ARCHITECTURE
+=================
+
+Source Code Organization:
+├── src/conductor/
+│   ├── orchestrator.py          ← Sequential execution (default)
+│   ├── orchestrator_parallel.py ← Parallel execution (NEW!)
+│   ├── orchestrator_tui.py      ← TUI integration
+│   ├── tasks/
+│   │   ├── models.py            ← Task, TaskList, TaskStatus
+│   │   └── loader.py            ← YAML parsing & validation
+│   ├── mcp/
+│   │   ├── client.py            ← MCP connection management
+│   │   └── browser.py           ← Browser automation
+│   ├── browser/
+│   │   ├── session.py           ← Session persistence
+│   │   └── auth.py              ← Authentication flow
+│   ├── utils/
+│   │   ├── config.py            ← Configuration loading
+│   │   └── retry.py             ← Exponential backoff & jitter
+│   └── main.py                  ← CLI entry point & orchestrator selection
+└── config/
+    └── default.yaml             ← Default configuration
+
+FEATURE MATRIX
+==============
+
+                         Implemented  Tested  TUI-Integrated  Production-Ready
+─────────────────────────────────────────────────────────────────────────────
+Sequential Execution          ✓          ✓          ✓              ✓
+Parallel Execution            ✓          Partial    ✓              ✓
+Dependency Resolution         ✓          ✓          ✓              ✓
+Semaphore Control             ✓          -          ✓              ✓
+Retry Logic                   ✓          ✓          ✓              ✓
+Session Persistence           ✓          ✓          ✓              ✓
+CLI Configuration             ✓          -          ✓              ✓
+YAML Config Support           ✓          ✓          ✓              ✓
+Circular Dep Detection        ✓          ✓          ✓              ✓
+─────────────────────────────────────────────────────────────────────────────
+
+EXECUTION FLOW - PARALLEL MODE
+===============================
+
+1. Load & Validate
+   └── TaskLoader.load_from_file() 
+       - Parse YAML
+       - Validate IDs unique
+       - Check dependencies exist
+       - Detect circular deps
+       
+2. Initialize
+   └── ParallelOrchestrator.__init__()
+       - Create asyncio.Semaphore(max_parallel)
+       - Set up tracking dicts
+       
+3. Setup Resources
+   └── _initialize_mcp_pool()
+       - Create N MCP clients
+       - Launch N browsers
+       - Connect to each MCP server
+       
+4. Authenticate
+   └── _authenticate()
+       - Use first browser for login
+       - Share session across all tasks
+       
+5. Execute Tasks
+   └── _execute_tasks_parallel()
+       ├── Find root tasks (no deps)
+       ├── Execute in parallel up to max_parallel
+       ├── For each task:
+       │   └── _execute_task_with_semaphore()
+       │       ├── Acquire semaphore (block if at limit)
+       │       ├── Get browser (round-robin assignment)
+       │       ├── _execute_task_with_retry()
+       │       │   ├── Navigate to claude.ai/code
+       │       │   ├── Submit prompt
+       │       │   └── Wait for completion
+       │       └── Release semaphore
+       │
+       └── Process dependent tasks iteratively
+           - As each task completes, check which new tasks can run
+           - Execute newly available tasks in parallel
+           - Repeat until all tasks done
+           
+6. Cleanup
+   └── _cleanup()
+       ├── Close all browsers
+       └── Disconnect all MCP clients
+
+CONCURRENCY CONTROL MECHANISM
+=============================
+
+asyncio.Semaphore Implementation:
+─────────────────────────────────
+
+self.semaphore = asyncio.Semaphore(max_parallel)
+
+async def _execute_task_with_semaphore(task):
+    async with self.semaphore:  # ← Only max_parallel coroutines here
+        # Execute task
+        # Only this many can run simultaneously
+
+Example with max_parallel=3:
+Time  │ Task 1 │ Task 2 │ Task 3 │ Task 4 │ Task 5 │ Task 6
+──────┼────────┼────────┼────────┼────────┼────────┼────────
+ 0s   │ RUN    │ RUN    │ RUN    │ WAIT   │ WAIT   │ WAIT
+ 5s   │ DONE   │ WAIT   │ RUN    │ RUN    │ WAIT   │ WAIT
+10s   │ -      │ DONE   │ DONE   │ RUN    │ RUN    │ WAIT
+15s   │ -      │ -      │ -      │ DONE   │ RUN    │ RUN
+20s   │ -      │ -      │ -      │ -      │ DONE   │ RUN
+25s   │ -      │ -      │ -      │ -      │ -      │ DONE
+
+CONFIGURATION EXAMPLES
+======================
+
+CLI Usage:
+──────────
+conductor run tasks.yaml --parallel 3
+conductor run tasks.yaml -p 5
+conductor run tasks.yaml --parallel 1  # Force sequential
+
+Config File (~/.conductor/config.yaml):
+────────────────────────────────────────
+execution:
+  parallel_mode: true
+  max_parallel_tasks: 5
+
+Task Dependencies:
+──────────────────
+tasks:
+  - id: task-1
+    dependencies: []           # Runs immediately
+    
+  - id: task-2
+    dependencies: [task-1]     # Waits for task-1
+    
+  - id: task-3
+    dependencies: [task-1]     # Also waits for task-1
+    
+  - id: task-4
+    dependencies: [task-2, task-3]  # Waits for both
+
+TIMING BENEFITS - PARALLEL vs SEQUENTIAL
+=========================================
+
+Scenario: 10 tasks, 5 take 30min, 5 take 10min
+
+Sequential Execution:
+Total Time = 30 + 30 + 30 + 30 + 30 + 10 + 10 + 10 + 10 + 10 = 200 minutes
+
+Parallel Execution (max=3):
+Time  │ Slot 1     │ Slot 2     │ Slot 3     │ Notes
+──────┼────────────┼────────────┼────────────┼──────────────────
+0-30m │ Task1(30m) │ Task2(30m) │ Task3(30m) │ 3 long tasks
+30-40m│ Task4(30m) │ Task5(10m) │ Task6(10m) │ Mixed
+40-70m│ Task7(30m) │ Task8(10m) │ Task9(10m) │
+70-80m│ Task10(10m)│ -          │ -          │
+
+Total Time ≈ 80 minutes (60% reduction!)
+
+DEPENDENCIES - EXECUTION ORDER GUARANTEE
+=========================================
+
+Given:
+  ┌─────────────────┐
+  │   Task-A        │
+  └─────────────────┘
+         │ (dependency)
+    ┌────┴────┐
+    ▼         ▼
+Task-B    Task-C     (both depend on A)
+    │         │
+    └────┬────┘ (both depend on A)
+         ▼
+      Task-D      (depends on both B and C)
+
+Execution:
+1. A runs
+2. B and C run AFTER A completes (parallel if max_parallel >= 2)
+3. D runs AFTER both B and C complete
+
+Status Transitions:
+Task-A: PENDING → RUNNING → COMPLETED
+Task-B: PENDING → RUNNING → COMPLETED (starts when A done)
+Task-C: PENDING → RUNNING → COMPLETED (starts when A done)
+Task-D: PENDING → RUNNING → COMPLETED (starts when B+C done)
+
+KEY FILES TO EXAMINE
+====================
+
+Priority 1 (Must Read):
+─────────────────────
+✓ /src/conductor/orchestrator_parallel.py (645 lines)
+  - Complete parallel execution implementation
+  - Semaphore control mechanism
+  - Dependency processing logic
+  - Real-time TUI updates
+
+✓ /src/conductor/tasks/models.py (257 lines)
+  - Task and TaskStatus definitions
+  - Dependency validation
+  - Circular dependency detection
+  - Task state management
+
+✓ /src/conductor/utils/config.py (120 lines)
+  - ExecutionConfig with max_parallel_tasks
+  - parallel_mode flag
+
+Priority 2 (Supporting Context):
+────────────────────────────────
+✓ /src/conductor/main.py (306 lines)
+  - CLI flag --parallel N
+  - Orchestrator selection logic
+  
+✓ /src/conductor/orchestrator.py (458 lines)
+  - Sequential version for comparison
+  - Dependency checking pattern
+  
+✓ /src/conductor/mcp/client.py (245 lines)
+  - MCP connection pooling capability
+  - Async connection management
+
+✓ /src/conductor/browser/session.py (250 lines)
+  - Session persistence (JSONL log)
+  - State recovery across crashes
+
+Priority 3 (Implementation Details):
+───────────────────────────────────
+✓ /src/conductor/utils/retry.py (115 lines)
+  - Exponential backoff algorithm
+  - Jitter implementation
+  
+✓ /src/conductor/tasks/loader.py (196 lines)
+  - YAML parsing (doesn't handle execution_order yet)
+  - Validation
+
+LIMITATIONS CHECKLIST
+====================
+
+Critical Issues:
+  ☐ Single browser auth → All instances share session
+
+Known Gaps:
+  ☐ execution_order YAML syntax not implemented
+  ☐ No task prioritization in scheduler
+  ☐ No task preemption/cancellation
+  ☐ Tab health monitoring not implemented
+  ☐ No resource constraint checking
+
+Minor Issues:
+  ☐ Limited test coverage for parallel mode
+  ☐ No Prometheus metrics export
+  ☐ No performance profiling per task
+  ☐ No dynamic task generation support
+  ☐ No multi-user authentication support
+
+NEXT STEPS FOR ENHANCEMENT
+===========================
+
+Short Term (1-2 sprints):
+1. Implement YAML execution_order parsing
+2. Add task priority-based scheduling
+3. Expand parallel mode test coverage
+4. Add task cancellation support
+
+Medium Term (3-4 sprints):
+1. Task state database (SQLite)
+2. Resource constraint checking
+3. Prometheus metrics export
+4. Tab health monitoring & recovery
+
+Long Term (Roadmap):
+1. Distributed task execution
+2. Cloud session sync
+3. Plugin system
+4. Web-based dashboard
+5. Dynamic task generation
