@@ -89,7 +89,10 @@ python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
-pip install -e .
+pip install -e ".[dev]"
+
+# Run tests to verify installation
+pytest
 ```
 
 ### Basic Usage
@@ -235,7 +238,10 @@ pytest
 pytest --cov=conductor
 
 # Run specific test file
-pytest tests/test_task_manager.py
+pytest tests/test_task_loader.py
+
+# Run tests in watch mode (requires pytest-watch)
+ptw
 ```
 
 ### Contributing
@@ -250,12 +256,17 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ## 🗺️ Roadmap
 
-### v1.0.0 - Foundation (Current)
-- [x] Core TUI implementation
-- [x] YAML task loading
-- [x] MCP browser control
-- [ ] Basic retry logic
-- [ ] Session management
+### v0.1.0 - Sprint 1 Foundation (Current)
+- [x] Project structure and tooling
+- [x] YAML task loading with validation
+- [x] MCP client integration layer
+- [x] Manual authentication flow
+- [x] Splash screen with ASCII art
+- [x] CLI entry point
+- [x] Basic retry logic with exponential backoff
+- [x] Session tracking and branch logging
+- [x] Unit tests for core functionality
+- [ ] Full TUI implementation (Sprint 2)
 
 ### v1.1.0 - Intelligence
 - [ ] HITL element discovery
@@ -292,6 +303,25 @@ playwright install chromium
 Check MCP server is running:
 ```bash
 npx @anthropic/playwright-mcp
+```
+</details>
+
+<details>
+<summary>Remote browser setup (Mac + Windows PC)</summary>
+
+See the comprehensive [Remote Browser Setup Guide](docs/REMOTE_BROWSER_SETUP.md) for configuring Conductor to control a browser on a different machine.
+
+**Quick setup:**
+
+Windows PC:
+```bash
+npx @playwright/mcp@latest --port 8931 --host 0.0.0.0 --allowed-hosts * --browser msedge
+```
+
+Mac config (`~/.conductor/config.yaml`):
+```yaml
+mcp:
+  server_url: "http://192.168.1.100:8931"  # Your Windows PC IP
 ```
 </details>
 
