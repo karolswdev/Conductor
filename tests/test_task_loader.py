@@ -46,8 +46,6 @@ tasks:
       initial_delay: 10.0
       max_delay: 600.0
       jitter: 0.3
-    dependencies:
-      - "OTHER-001"
     repository: "user/repo"
 """
 
@@ -61,7 +59,6 @@ tasks:
     assert task.auto_pr_timeout == 3600
     assert task.retry_policy.max_attempts == 5
     assert task.retry_policy.backoff_factor == 1.5
-    assert task.dependencies == ["OTHER-001"]
     assert task.repository == "user/repo"
 
 
