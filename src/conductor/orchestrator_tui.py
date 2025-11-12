@@ -1,0 +1,332 @@
+"""
+TUI-based orchestrator for task execution.
+"""
+
+import asyncio
+import logging
+from typing import Optional
+from datetime import datetime
+from textual import work
+
+from conductor.mcp.client import MCPClient
+from conductor.mcp.browser import BrowserController
+from conductor.browser.auth import AuthenticationFlow, AuthStatus
+from conductor.browser.session import SessionManager
+from conductor.tasks.models import TaskList, Task, TaskStatus
+from conductor.utils.config import Config
+from conductor.utils.retry import retry_async, exponential_backoff
+from conductor.tui.app import ConductorTUI
+
+
+logger = logging.getLogger(__name__)
+
+
+class TUIOrchestrator:
+    """
+    Orchestrates task execution with TUI interface.
+
+    Integrates the Textual TUI with the orchestration logic.
+    """
+
+    def __init__(self, config: Config, task_list: TaskList, app: ConductorTUI):
+        """
+        Initialize TUI orchestrator.
+
+        Args:
+            config: Configuration
+            task_list: List of tasks to execute
+            app: TUI application instance
+        """
+        self.config = config
+        self.task_list = task_list
+        self.app = app
+        self.mcp_client: Optional[MCPClient] = None
+        self.browser: Optional[BrowserController] = None
+        self.auth_flow: Optional[AuthenticationFlow] = None
+        self.session_manager = SessionManager()
+        self.start_time = datetime.now()
+
+    async def run(self) -> None:
+        """Run the orchestration flow with TUI updates."""
+        try:
+            self.app.notify("Starting Conductor Orchestrator", title="🎭 Conductor")
+
+            # Step 1: Initialize MCP connection
+            await self._initialize_mcp()
+
+            # Step 2: Authenticate
+            await self._authenticate()
+
+            # Step 3: Execute tasks
+            await self._execute_tasks()
+
+            # Step 4: Show completion
+            self._show_completion()
+
+        except KeyboardInterrupt:
+            self.app.notify("Interrupted by user", title="Warning", severity="warning")
+
+        except Exception as e:
+            logger.exception("Orchestration failed")
+            self.app.notify(
+                f"Error: {str(e)}", title="Orchestration Failed", severity="error"
+            )
+
+        finally:
+            await self._cleanup()
+
+    async def _initialize_mcp(self) -> None:
+        """Initialize MCP connection."""
+        self.app.notify("Initializing MCP connection...", title="MCP")
+
+        self.mcp_client = MCPClient(
+            server_url=self.config.mcp.server_url,
+            timeout=self.config.mcp.timeout,
+            max_retries=self.config.mcp.max_retries,
+        )
+
+        await self.mcp_client.connect()
+
+        self.browser = BrowserController(self.mcp_client)
+
+        self.app.notify("MCP connected successfully", title="MCP", severity="information")
+
+    async def _authenticate(self) -> None:
+        """Run authentication flow."""
+        self.app.notify(
+            "Please log in to Claude Code in the browser",
+            title="Authentication",
+            timeout=10,
+        )
+
+        self.auth_flow = AuthenticationFlow(
+            browser=self.browser,
+            timeout=self.config.auth.timeout,
+            check_interval=self.config.auth.check_interval,
+        )
+
+        status = await self.auth_flow.start(headless=self.config.auth.headless)
+
+        if status == AuthStatus.AUTHENTICATED:
+            self.app.notify(
+                "Authentication successful!", title="Auth", severity="information"
+            )
+        elif status == AuthStatus.TIMEOUT:
+            self.app.notify(
+                "Authentication timed out", title="Auth", severity="error"
+            )
+            raise RuntimeError("Authentication timeout")
+        else:
+            self.app.notify(
+                f"Authentication failed: {status}", title="Auth", severity="error"
+            )
+            raise RuntimeError(f"Authentication failed: {status}")
+
+    async def _execute_tasks(self) -> None:
+        """Execute all tasks with TUI updates."""
+        self.app.notify(
+            f"Executing {len(self.task_list)} tasks", title="Execution"
+        )
+
+        for task in self.task_list.tasks:
+            # Update task queue display
+            self.app.update_task_queue(current_task_id=task.id)
+
+            # Check if dependencies are met
+            if not self._dependencies_met(task):
+                self.app.notify(
+                    f"Skipping {task.id}: dependencies not met",
+                    title="Task Skipped",
+                    severity="warning",
+                )
+                task.skip()
+                self.app.update_task_queue()
+                continue
+
+            # Execute task with retries
+            task_start = datetime.now()
+
+            try:
+                await self._execute_task_with_retry(task, task_start)
+                self.app.notify(
+                    f"Task {task.id} completed successfully",
+                    title="Success",
+                    severity="information",
+                )
+
+            except Exception as e:
+                logger.error(f"Task {task.id} failed: {e}")
+                self.app.notify(
+                    f"Task {task.id} failed: {str(e)}",
+                    title="Task Failed",
+                    severity="error",
+                )
+                task.fail(str(e))
+
+            # Update displays
+            self.app.update_task_queue()
+            self.app.update_metrics()
+
+        self.app.notify("All tasks processed!", title="Complete", severity="information")
+
+    def _dependencies_met(self, task: Task) -> bool:
+        """Check if task dependencies are met."""
+        for dep_id in task.dependencies:
+            dep_task = self.task_list.get_task(dep_id)
+            if not dep_task or dep_task.status != TaskStatus.COMPLETED:
+                return False
+        return True
+
+    async def _execute_task_with_retry(self, task: Task, start_time: datetime) -> None:
+        """
+        Execute a single task with retry logic.
+
+        Args:
+            task: Task to execute
+            start_time: When task execution started
+        """
+        task.start()
+
+        for attempt in range(task.retry_policy.max_attempts):
+            try:
+                # Update execution panel
+                elapsed = (datetime.now() - start_time).total_seconds()
+                self.app.update_execution(
+                    task=task,
+                    progress=0.0,
+                    elapsed=elapsed,
+                    retries=attempt,
+                )
+
+                # Execute the task
+                await self._execute_single_task(task, start_time)
+
+                # Success!
+                return
+
+            except Exception as e:
+                logger.warning(f"Task {task.id} attempt {attempt + 1} failed: {e}")
+                task.increment_retry()
+
+                if attempt < task.retry_policy.max_attempts - 1:
+                    # Calculate backoff delay
+                    delay = exponential_backoff(
+                        attempt=attempt,
+                        initial_delay=task.retry_policy.initial_delay,
+                        backoff_factor=task.retry_policy.backoff_factor,
+                        max_delay=task.retry_policy.max_delay,
+                        jitter=task.retry_policy.jitter,
+                    )
+
+                    self.app.notify(
+                        f"Retrying in {delay:.1f}s... (attempt {attempt + 2}/{task.retry_policy.max_attempts})",
+                        title=f"Retry: {task.id}",
+                        timeout=5,
+                    )
+
+                    await asyncio.sleep(delay)
+                else:
+                    # All retries exhausted
+                    raise
+
+    async def _execute_single_task(self, task: Task, start_time: datetime) -> None:
+        """
+        Execute a single task attempt.
+
+        Args:
+            task: Task to execute
+            start_time: When execution started
+        """
+        # Simulate task execution with progress updates
+        # TODO: Replace with actual Claude Code interaction
+
+        steps = 10
+        for step in range(steps + 1):
+            progress = step / steps
+            elapsed = (datetime.now() - start_time).total_seconds()
+
+            self.app.update_execution(
+                task=task,
+                progress=progress,
+                elapsed=elapsed,
+                retries=task.retry_count,
+            )
+
+            await asyncio.sleep(0.5)  # Simulate work
+
+        # Create session
+        session_id = f"session_{task.id}_{int(datetime.now().timestamp())}"
+        branch_name = f"claude/{task.id.lower()}-{int(datetime.now().timestamp())}"
+
+        self.session_manager.add_session(
+            session_id=session_id,
+            task_id=task.id,
+            branch_name=branch_name,
+            url=f"https://claude.ai/code/{session_id}",
+        )
+
+        # Update browser preview
+        self.app.update_browser(
+            url=f"https://claude.ai/code/{session_id}",
+            branch=branch_name,
+            preview="Task execution completed",
+        )
+
+        task.complete(session_id=session_id, branch_name=branch_name)
+
+    def _show_completion(self) -> None:
+        """Show completion summary."""
+        total_time = (datetime.now() - self.start_time).total_seconds()
+
+        completed = sum(
+            1 for t in self.task_list.tasks if t.status == TaskStatus.COMPLETED
+        )
+        failed = sum(1 for t in self.task_list.tasks if t.status == TaskStatus.FAILED)
+        skipped = sum(1 for t in self.task_list.tasks if t.status == TaskStatus.SKIPPED)
+
+        summary = (
+            f"Execution Complete!\n\n"
+            f"Completed: {completed}\n"
+            f"Failed: {failed}\n"
+            f"Skipped: {skipped}\n"
+            f"Total Time: {int(total_time // 60)}m {int(total_time % 60)}s"
+        )
+
+        self.app.notify(summary, title="🎭 Conductor Complete", timeout=0)
+
+    async def _cleanup(self) -> None:
+        """Clean up resources."""
+        if self.browser:
+            await self.browser.close()
+
+        if self.mcp_client and self.mcp_client.is_connected:
+            await self.mcp_client.disconnect()
+
+        self.app.notify("Cleanup complete", title="Shutdown")
+
+
+async def run_with_tui(config: Config, task_list: TaskList) -> None:
+    """
+    Run orchestrator with TUI.
+
+    Args:
+        config: Configuration
+        task_list: Tasks to execute
+    """
+    app = ConductorTUI(task_list=task_list)
+
+    # Create orchestrator
+    orchestrator = TUIOrchestrator(config, task_list, app)
+
+    # Run orchestrator in background
+    async def run_orchestrator():
+        await orchestrator.run()
+        # Keep app running after orchestration completes
+        await asyncio.sleep(5)
+        app.exit()
+
+    # Start orchestrator as background task
+    asyncio.create_task(run_orchestrator())
+
+    # Run the TUI app
+    await app.run_async()

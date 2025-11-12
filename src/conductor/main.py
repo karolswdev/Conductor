@@ -68,6 +68,11 @@ def cli():
     help="Run browser in headless mode",
 )
 @click.option(
+    "--no-tui",
+    is_flag=True,
+    help="Disable TUI (use simple console mode)",
+)
+@click.option(
     "--debug",
     is_flag=True,
     help="Enable debug logging",
@@ -79,6 +84,7 @@ def run(
     repo: str | None,
     no_splash: bool,
     headless: bool,
+    no_tui: bool,
     debug: bool,
 ):
     """
@@ -103,8 +109,8 @@ def run(
         if repo:
             cfg.default_repository = repo
 
-        # Show splash screen
-        if cfg.ui.show_splash:
+        # Show splash screen (only if not using TUI)
+        if cfg.ui.show_splash and no_tui:
             show_splash(console, duration=cfg.ui.splash_duration)
 
         # Load tasks
@@ -113,7 +119,12 @@ def run(
         console.print(f"[green]✓[/green] Loaded {len(task_list)} tasks\n")
 
         # Run orchestrator
-        asyncio.run(run_orchestrator(cfg, task_list))
+        if no_tui:
+            # Use simple console orchestrator
+            asyncio.run(run_orchestrator_simple(cfg, task_list))
+        else:
+            # Use TUI orchestrator
+            asyncio.run(run_orchestrator_tui(cfg, task_list))
 
     except TaskLoadError as e:
         console.print(f"[red]Error loading tasks:[/red] {e}")
@@ -129,10 +140,17 @@ def run(
         raise click.Abort()
 
 
-async def run_orchestrator(config, task_list):
-    """Run the orchestrator with the given configuration and tasks."""
+async def run_orchestrator_simple(config, task_list):
+    """Run the simple console orchestrator."""
     orchestrator = Orchestrator(config, task_list)
     await orchestrator.run()
+
+
+async def run_orchestrator_tui(config, task_list):
+    """Run the TUI orchestrator."""
+    from conductor.orchestrator_tui import run_with_tui
+
+    await run_with_tui(config, task_list)
 
 
 @cli.command()
