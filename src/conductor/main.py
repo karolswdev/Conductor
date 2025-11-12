@@ -181,7 +181,13 @@ def validate(tasks_file: Path):
 
 
 @cli.command()
-def init():
+@click.option(
+    "--wizard",
+    "-w",
+    is_flag=True,
+    help="Use interactive configuration wizard",
+)
+def init(wizard: bool):
     """
     Initialize Conductor configuration.
 
@@ -194,13 +200,20 @@ def init():
             console.print("[yellow]Initialization cancelled[/yellow]")
             return
 
-    # Create default config
-    from conductor.utils.config import Config
+    # Use wizard or create default
+    if wizard:
+        from conductor.wizard import run_wizard
 
-    config = Config()
+        console.print("[cyan]Starting configuration wizard...[/cyan]\n")
+        config = run_wizard()
+    else:
+        from conductor.utils.config import Config
+
+        config = Config()
+
     config.to_file(config_path)
 
-    console.print(f"[green]✓[/green] Configuration created at {config_path}")
+    console.print(f"\n[green]✓[/green] Configuration created at {config_path}")
     console.print("\nYou can now:")
     console.print("  1. Edit the config file to customize settings")
     console.print("  2. Create a tasks.yaml file with your tasks")
