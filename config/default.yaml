@@ -1,0 +1,32 @@
+# Default configuration for Conductor
+# Copy this to ~/.conductor/config.yaml and customize
+
+# MCP server configuration
+mcp:
+  server_url: "stdio://playwright-mcp"
+  timeout: 30.0
+  max_retries: 3
+
+# Authentication configuration
+auth:
+  timeout: 120  # seconds
+  check_interval: 2.0  # seconds
+  headless: false  # set to true for headless browser
+
+# Default retry policy
+retry:
+  max_attempts: 3
+  initial_delay: 5.0
+  backoff_factor: 2.0
+  max_delay: 300.0
+  jitter: 0.2
+
+# UI configuration
+ui:
+  theme: "default"  # options: default, cyberpunk, minimal
+  refresh_rate: 10  # FPS
+  show_splash: true
+  splash_duration: 2.0
+
+# Default repository (can be overridden per task or via CLI)
+default_repository: null  # e.g., "karolswdev/my-project"

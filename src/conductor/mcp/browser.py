@@ -1,0 +1,277 @@
+"""
+Browser controller using MCP Playwright integration.
+"""
+
+import asyncio
+import logging
+from typing import Optional, Dict, Any
+from pathlib import Path
+
+from .client import MCPClient, MCPError
+
+
+logger = logging.getLogger(__name__)
+
+
+class BrowserController:
+    """
+    High-level browser controller using MCP Playwright server.
+
+    Provides convenient methods for common browser operations needed
+    for Claude Code automation.
+    """
+
+    def __init__(self, mcp_client: MCPClient):
+        """
+        Initialize browser controller.
+
+        Args:
+            mcp_client: Connected MCP client instance
+        """
+        self.client = mcp_client
+        self._browser_launched = False
+
+    async def launch_browser(self, headless: bool = False) -> None:
+        """
+        Launch browser instance.
+
+        Args:
+            headless: Whether to run in headless mode
+
+        Raises:
+            MCPError: If browser launch fails
+        """
+        try:
+            logger.info(f"Launching browser (headless={headless})")
+
+            await self.client.call_tool(
+                "playwright_navigate",
+                {
+                    "url": "about:blank",
+                    "headless": headless,
+                },
+            )
+
+            self._browser_launched = True
+            logger.info("Browser launched successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to launch browser: {e}")
+            raise MCPError(f"Browser launch failed: {e}") from e
+
+    async def navigate(self, url: str, wait_until: str = "networkidle") -> None:
+        """
+        Navigate to a URL.
+
+        Args:
+            url: URL to navigate to
+            wait_until: When to consider navigation complete
+
+        Raises:
+            MCPError: If navigation fails
+        """
+        try:
+            logger.info(f"Navigating to {url}")
+
+            await self.client.call_tool(
+                "playwright_navigate",
+                {
+                    "url": url,
+                    "wait_until": wait_until,
+                },
+            )
+
+            logger.info(f"Successfully navigated to {url}")
+
+        except Exception as e:
+            logger.error(f"Navigation failed: {e}")
+            raise MCPError(f"Failed to navigate to {url}: {e}") from e
+
+    async def click(self, selector: str, timeout: float = 30.0) -> None:
+        """
+        Click an element.
+
+        Args:
+            selector: CSS selector for the element
+            timeout: Maximum time to wait for element
+
+        Raises:
+            MCPError: If click fails
+        """
+        try:
+            logger.debug(f"Clicking element: {selector}")
+
+            await self.client.call_tool(
+                "playwright_click",
+                {
+                    "selector": selector,
+                    "timeout": timeout * 1000,  # Convert to ms
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"Click failed: {e}")
+            raise MCPError(f"Failed to click {selector}: {e}") from e
+
+    async def fill(self, selector: str, text: str, timeout: float = 30.0) -> None:
+        """
+        Fill a text input.
+
+        Args:
+            selector: CSS selector for the input
+            text: Text to fill
+            timeout: Maximum time to wait for element
+
+        Raises:
+            MCPError: If fill fails
+        """
+        try:
+            logger.debug(f"Filling element: {selector}")
+
+            await self.client.call_tool(
+                "playwright_fill",
+                {
+                    "selector": selector,
+                    "text": text,
+                    "timeout": timeout * 1000,
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"Fill failed: {e}")
+            raise MCPError(f"Failed to fill {selector}: {e}") from e
+
+    async def screenshot(self, output_path: Optional[Path] = None) -> bytes:
+        """
+        Take a screenshot.
+
+        Args:
+            output_path: Optional path to save screenshot
+
+        Returns:
+            Screenshot bytes
+
+        Raises:
+            MCPError: If screenshot fails
+        """
+        try:
+            logger.debug("Taking screenshot")
+
+            result = await self.client.call_tool(
+                "playwright_screenshot",
+                {
+                    "full_page": True,
+                },
+            )
+
+            screenshot_data = result.get("screenshot", b"")
+
+            if output_path:
+                output_path.write_bytes(screenshot_data)
+                logger.info(f"Screenshot saved to {output_path}")
+
+            return screenshot_data
+
+        except Exception as e:
+            logger.error(f"Screenshot failed: {e}")
+            raise MCPError(f"Failed to take screenshot: {e}") from e
+
+    async def wait_for_selector(
+        self,
+        selector: str,
+        timeout: float = 30.0,
+        state: str = "visible",
+    ) -> bool:
+        """
+        Wait for an element to appear.
+
+        Args:
+            selector: CSS selector for the element
+            timeout: Maximum time to wait
+            state: Element state to wait for (visible, attached, etc.)
+
+        Returns:
+            True if element appeared, False if timeout
+
+        Raises:
+            MCPError: If wait fails
+        """
+        try:
+            logger.debug(f"Waiting for selector: {selector} (state={state})")
+
+            await self.client.call_tool(
+                "playwright_wait_for_selector",
+                {
+                    "selector": selector,
+                    "timeout": timeout * 1000,
+                    "state": state,
+                },
+            )
+
+            return True
+
+        except Exception as e:
+            logger.warning(f"Wait for selector timed out: {e}")
+            return False
+
+    async def get_text(self, selector: str) -> str:
+        """
+        Get text content of an element.
+
+        Args:
+            selector: CSS selector for the element
+
+        Returns:
+            Element text content
+
+        Raises:
+            MCPError: If operation fails
+        """
+        try:
+            result = await self.client.call_tool(
+                "playwright_get_text",
+                {"selector": selector},
+            )
+
+            return result.get("text", "")
+
+        except Exception as e:
+            logger.error(f"Get text failed: {e}")
+            raise MCPError(f"Failed to get text from {selector}: {e}") from e
+
+    async def get_current_url(self) -> str:
+        """
+        Get current page URL.
+
+        Returns:
+            Current URL
+
+        Raises:
+            MCPError: If operation fails
+        """
+        try:
+            result = await self.client.call_tool(
+                "playwright_evaluate",
+                {"expression": "window.location.href"},
+            )
+
+            return result.get("result", "")
+
+        except Exception as e:
+            logger.error(f"Get URL failed: {e}")
+            raise MCPError(f"Failed to get current URL: {e}") from e
+
+    async def close(self) -> None:
+        """Close the browser."""
+        if self._browser_launched:
+            logger.info("Closing browser")
+            try:
+                await self.client.call_tool("playwright_close", {})
+                self._browser_launched = False
+            except Exception as e:
+                logger.warning(f"Error closing browser: {e}")
+
+    @property
+    def is_launched(self) -> bool:
+        """Check if browser is launched."""
+        return self._browser_launched

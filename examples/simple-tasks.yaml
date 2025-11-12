@@ -1,0 +1,32 @@
+# Simple example tasks for Conductor
+# This is a minimal working example for Sprint 1
+
+tasks:
+  # Basic task
+  - id: "HELLO-001"
+    name: "Hello World"
+    prompt: "Create a simple hello.py file that prints 'Hello, Conductor!'"
+    expected_deliverable: "hello.py file with print statement"
+    priority: high
+
+  # Task with dependency
+  - id: "TEST-001"
+    name: "Add Test"
+    prompt: "Create a test_hello.py file that tests the hello.py file"
+    expected_deliverable: "test_hello.py with passing tests"
+    priority: medium
+    dependencies:
+      - "HELLO-001"
+
+  # Task with custom retry policy
+  - id: "DOC-001"
+    name: "Add Documentation"
+    prompt: "Add a README.md file documenting the hello world example"
+    expected_deliverable: "README.md with documentation"
+    priority: low
+    retry_policy:
+      max_attempts: 2
+      backoff_factor: 1.5
+    dependencies:
+      - "HELLO-001"
+      - "TEST-001"
