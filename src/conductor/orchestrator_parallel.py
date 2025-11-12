@@ -687,30 +687,70 @@ async def run_with_tui_parallel(config: Config, task_list: TaskList) -> None:
     print("✅ Authentication successful!\n")
 
     # STEP 2: Now that we're authenticated, create and run TUI
-    app = ConductorTUI(task_list=task_list)
+    logger.info("Creating ConductorTUI...")
+    try:
+        app = ConductorTUI(task_list=task_list)
+        logger.info(f"ConductorTUI created successfully: {app}")
+    except Exception as e:
+        logger.exception("Failed to create ConductorTUI")
+        raise
 
     # Create parallel orchestrator with pre-authenticated browser
-    orchestrator = ParallelOrchestrator(config, task_list, app)
-    orchestrator.mcp_client = mcp_client
-    orchestrator.browser = browser
+    logger.info("Creating ParallelOrchestrator...")
+    try:
+        orchestrator = ParallelOrchestrator(config, task_list, app)
+        orchestrator.mcp_client = mcp_client
+        orchestrator.browser = browser
+        logger.info(f"ParallelOrchestrator created successfully")
+        logger.info(f"  - mcp_client: {orchestrator.mcp_client}")
+        logger.info(f"  - browser: {orchestrator.browser}")
+        logger.info(f"  - app: {orchestrator.app}")
+    except Exception as e:
+        logger.exception("Failed to create ParallelOrchestrator")
+        raise
+
+    logger.info("About to create TUI and start orchestrator...")
 
     try:
-        # Run orchestrator in background
+        # Run orchestrator in background with extensive error handling
         async def run_orchestrator():
-            await orchestrator.run()
-            # Keep app running after orchestration completes
-            await asyncio.sleep(5)
-            app.exit()
+            try:
+                logger.info("=== BACKGROUND TASK STARTED ===")
+                logger.info("About to call orchestrator.run()...")
+                await orchestrator.run()
+                logger.info("=== ORCHESTRATOR COMPLETED SUCCESSFULLY ===")
+                # Keep app running after orchestration completes
+                logger.info("Keeping app alive for 5 seconds...")
+                await asyncio.sleep(5)
+                logger.info("Calling app.exit()...")
+                app.exit()
+            except Exception as e:
+                logger.exception("=== BACKGROUND TASK FAILED ===")
+                print(f"\n❌ Orchestrator failed: {e}\n")
+                import traceback
+                traceback.print_exc()
+                app.exit()
 
         # Start orchestrator as background task
-        asyncio.create_task(run_orchestrator())
+        logger.info("Creating background task...")
+        task = asyncio.create_task(run_orchestrator())
+        logger.info(f"Background task created: {task}")
 
-        # Run the TUI app
+        # Run the TUI app (this should block until app.exit() is called)
+        logger.info("=== STARTING TUI APP ===")
+        logger.info("Calling app.run_async()...")
         await app.run_async()
+        logger.info("=== TUI APP EXITED ===")
+
+    except Exception as e:
+        logger.exception("=== ERROR IN TUI SETUP ===")
+        print(f"\n❌ TUI setup failed: {e}\n")
+        import traceback
+        traceback.print_exc()
 
     finally:
         # Clean up browser and MCP connection we created
-        logger.info("Cleaning up browser and MCP connection")
+        logger.info("=== CLEANUP STARTED ===")
         if browser:
             try:
                 await browser.close()
