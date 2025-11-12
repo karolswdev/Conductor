@@ -103,7 +103,17 @@ pytest
    ```
    This launches an interactive configuration wizard.
 
-2. **Create your task file** (`tasks.yaml`):
+2. **Verify your setup** (optional but recommended)
+   ```bash
+   conductor doctor
+   ```
+   This runs diagnostic checks to verify:
+   - MCP server connectivity
+   - Browser launch capability
+   - Navigation works properly
+   - You can see the browser window
+
+3. **Create your task file** (`tasks.yaml`):
    ```yaml
    tasks:
      - id: "TEST-001"
@@ -119,14 +129,14 @@ pytest
        dependencies: ["TEST-001"]
    ```
 
-3. **Run Conductor**
+4. **Run Conductor**
    ```bash
    conductor run tasks.yaml --theme cyberpunk
    ```
 
-4. **Authenticate**: Browser opens → Log into Claude Code → Press Enter in terminal
+5. **Authenticate**: Browser opens → Log into Claude Code → Press Enter in terminal
 
-5. **Watch the magic happen!** 🎭
+6. **Watch the magic happen!** 🎭
 
 ## 📖 Documentation
 
@@ -155,6 +165,13 @@ tasks:
 # Initialize configuration
 conductor init
 
+# Run diagnostics (verify everything works)
+conductor doctor [options]
+
+# Options:
+  --headless           # Run in headless mode (skips visibility check)
+  --debug              # Enable debug logging
+
 # Run tasks
 conductor run <task-file> [options]
 
@@ -166,9 +183,8 @@ conductor run <task-file> [options]
   --debug              # Enable debug logging
 
 # Utilities:
-conductor list-themes   # Show available themes
 conductor validate <file> # Validate task YAML
-conductor stats        # Show execution statistics
+conductor version    # Show version information
 ```
 
 ### Keyboard Shortcuts
@@ -287,6 +303,20 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 - [ ] API endpoints
 
 ## 🐛 Troubleshooting
+
+### Quick Diagnostics
+
+If you're experiencing issues, run the doctor command first:
+
+```bash
+conductor doctor
+```
+
+This will check:
+- ✓ MCP server connectivity
+- ✓ Browser launch capability
+- ✓ Navigation functionality
+- ✓ Visual confirmation that browser appears
 
 <details>
 <summary>Browser doesn't open</summary>
