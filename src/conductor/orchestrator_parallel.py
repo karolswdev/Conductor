@@ -52,6 +52,10 @@ class ParallelOrchestrator:
         self.max_parallel = config.execution.max_parallel_tasks
         self.semaphore = asyncio.Semaphore(self.max_parallel)
 
+        # Lock for tab creation to prevent race conditions
+        # Multiple tasks creating tabs simultaneously can interfere with each other
+        self.tab_creation_lock = asyncio.Lock()
+
         # Track running tasks
         self.running_tasks: Dict[str, Task] = {}
         self.completed_tasks: List[Task] = []
@@ -328,11 +332,15 @@ class ParallelOrchestrator:
         tab_index = None
 
         try:
-            # Step 1: Create a new tab for this task AND navigate to Claude Code atomically
-            # This prevents race conditions in parallel mode
-            logger.info(f"Creating new tab with Claude Code URL for task {task.id}")
-            tab_index = await browser.create_tab(url="https://claude.ai/code")
-            await browser.switch_tab(tab_index)
+            # Step 1: Create tab and navigate atomically using lock
+            # This prevents race conditions where multiple tasks interfere with each other
+            async with self.tab_creation_lock:
+                logger.info(f"Creating new tab for task {task.id}")
+                tab_index = await browser.create_tab()
+                await browser.switch_tab(tab_index)
+
+                logger.info(f"Navigating to Claude Code for task {task.id}")
+                await browser.navigate("https://claude.ai/code")
 
             # Wait for page to load
             await asyncio.sleep(3.0)

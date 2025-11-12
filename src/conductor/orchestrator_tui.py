@@ -247,12 +247,21 @@ class TUIOrchestrator:
         tab_index = None
 
         try:
-            # Step 1: Create a new tab for this task AND navigate to Claude Code atomically
-            logger.info(f"Creating new tab with Claude Code URL for task {task.id}")
-            tab_index = await self.browser.create_tab(url="https://claude.ai/code")
+            # Step 1: Create a new tab for this task
+            logger.info(f"Creating new tab for task {task.id}")
+            tab_index = await self.browser.create_tab()
             await self.browser.switch_tab(tab_index)
 
-            # Wait for page to load
+            self.app.update_execution(
+                task=task,
+                progress=0.1,
+                elapsed=(datetime.now() - start_time).total_seconds(),
+                retries=task.retry_count,
+            )
+
+            # Step 2: Navigate to Claude Code
+            logger.info(f"Navigating to Claude Code for task {task.id}")
+            await self.browser.navigate("https://claude.ai/code")
             await asyncio.sleep(3.0)
 
             self.app.update_execution(
@@ -262,7 +271,7 @@ class TUIOrchestrator:
                 retries=task.retry_count,
             )
 
-            # Step 2: Select repository if specified
+            # Step 3: Select repository if specified
             if hasattr(task, 'repository') and task.repository:
                 try:
                     logger.info(f"Selecting repository: {task.repository}")
@@ -288,7 +297,7 @@ class TUIOrchestrator:
                 retries=task.retry_count,
             )
 
-            # Step 3: Submit task prompt
+            # Step 4: Submit task prompt
             logger.info(f"Submitting task prompt for task {task.id}")
             try:
                 await self.browser.fill("Message input textbox", task.prompt)
@@ -298,7 +307,7 @@ class TUIOrchestrator:
                 logger.warning(f"Could not submit prompt automatically: {e}")
                 raise
 
-            # Step 4: Wait for session URL to update
+            # Step 5: Wait for session URL to update
             await asyncio.sleep(3.0)
             current_url = await self.browser.get_current_url()
             session_id = self._extract_session_id_from_url(current_url)
@@ -313,7 +322,7 @@ class TUIOrchestrator:
                 retries=task.retry_count,
             )
 
-            # Step 5: Monitor for completion
+            # Step 6: Monitor for completion
             logger.info(f"Waiting for task {task.id} to complete...")
             await self._wait_for_task_completion(task, tab_index, start_time)
 
@@ -324,7 +333,7 @@ class TUIOrchestrator:
                 retries=task.retry_count,
             )
 
-            # Step 6: Extract branch name
+            # Step 7: Extract branch name
             branch_name = f"claude/{task.id.lower()}"
             try:
                 page_text = await self.browser.get_text("body")
@@ -334,7 +343,7 @@ class TUIOrchestrator:
             except Exception as e:
                 logger.debug(f"Could not extract branch name: {e}")
 
-            # Step 7: Record session
+            # Step 8: Record session
             final_url = await self.browser.get_current_url()
             self.session_manager.add_session(
                 session_id=session_id or f"session_{task.id}_{int(datetime.now().timestamp())}",
