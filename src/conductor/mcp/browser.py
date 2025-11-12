@@ -318,6 +318,147 @@ class BrowserController:
             logger.error(f"Get URL failed: {e}")
             raise MCPError(f"Failed to get current URL: {e}") from e
 
+    async def create_tab(self) -> int:
+        """
+        Create a new browser tab.
+
+        Returns:
+            Index of the new tab
+
+        Raises:
+            MCPError: If tab creation fails
+        """
+        try:
+            logger.debug("Creating new tab")
+
+            result = await self.client.call_tool(
+                "browser_tabs",
+                {
+                    "action": "new",
+                },
+            )
+
+            # Get the list of tabs to find the new one
+            tabs = await self.list_tabs()
+            new_tab_index = len(tabs) - 1
+
+            logger.info(f"Created new tab at index {new_tab_index}")
+            return new_tab_index
+
+        except Exception as e:
+            logger.error(f"Failed to create tab: {e}")
+            raise MCPError(f"Tab creation failed: {e}") from e
+
+    async def list_tabs(self) -> list:
+        """
+        List all open browser tabs.
+
+        Returns:
+            List of tab information
+
+        Raises:
+            MCPError: If listing tabs fails
+        """
+        try:
+            result = await self.client.call_tool(
+                "browser_tabs",
+                {
+                    "action": "list",
+                },
+            )
+
+            # Parse the result to get tab list
+            if "content" in result and isinstance(result["content"], list):
+                for item in result["content"]:
+                    if hasattr(item, "text"):
+                        # Parse the text content
+                        return self._parse_tab_list(item.text)
+                    elif isinstance(item, dict) and "text" in item:
+                        return self._parse_tab_list(item["text"])
+                return []
+            elif "tabs" in result:
+                return result["tabs"]
+            else:
+                return []
+
+        except Exception as e:
+            logger.error(f"Failed to list tabs: {e}")
+            raise MCPError(f"Tab listing failed: {e}") from e
+
+    async def switch_tab(self, index: int) -> None:
+        """
+        Switch to a specific browser tab.
+
+        Args:
+            index: Index of the tab to switch to
+
+        Raises:
+            MCPError: If tab switch fails
+        """
+        try:
+            logger.debug(f"Switching to tab {index}")
+
+            await self.client.call_tool(
+                "browser_tabs",
+                {
+                    "action": "select",
+                    "index": index,
+                },
+            )
+
+            logger.info(f"Switched to tab {index}")
+
+        except Exception as e:
+            logger.error(f"Failed to switch to tab {index}: {e}")
+            raise MCPError(f"Tab switch failed: {e}") from e
+
+    async def close_tab(self, index: int) -> None:
+        """
+        Close a specific browser tab.
+
+        Args:
+            index: Index of the tab to close
+
+        Raises:
+            MCPError: If tab close fails
+        """
+        try:
+            logger.debug(f"Closing tab {index}")
+
+            await self.client.call_tool(
+                "browser_tabs",
+                {
+                    "action": "close",
+                    "index": index,
+                },
+            )
+
+            logger.info(f"Closed tab {index}")
+
+        except Exception as e:
+            logger.error(f"Failed to close tab {index}: {e}")
+            raise MCPError(f"Tab close failed: {e}") from e
+
+    def _parse_tab_list(self, text: str) -> list:
+        """
+        Parse tab list from text content.
+
+        Args:
+            text: Text content containing tab information
+
+        Returns:
+            List of tab info dictionaries
+        """
+        # Simple parsing - this may need adjustment based on actual format
+        tabs = []
+        lines = text.strip().split("\n")
+
+        for i, line in enumerate(lines):
+            if line.strip():
+                tabs.append({"index": i, "title": line.strip()})
+
+        return tabs
+
     async def close(self) -> None:
         """Close the browser."""
         if self._browser_launched:
