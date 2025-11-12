@@ -1,0 +1,210 @@
+# Conductor Task Definition Example
+# This file demonstrates all available task configuration options
+
+# Global configuration (optional)
+config:
+  default_repository: "karolswdev/my-project"
+  default_pr_strategy: "normal"  # Default PR creation strategy
+  default_auto_pr_timeout: 3600  # 1 hour default
+  default_retry_policy:
+    max_attempts: 3
+    backoff_factor: 2.0
+    initial_delay: 5000  # milliseconds
+    max_delay: 300000    # 5 minutes
+    jitter: 0.2          # ±20% randomization
+
+# Task definitions
+tasks:
+  # Basic task example
+  - id: "INIT-001"
+    name: "Project Setup"
+    prompt: "Initialize the project with a basic README and folder structure for a Python web application"
+    expected_deliverable: "README.md and project structure created"
+
+  # Task with all optional fields
+  - id: "AUTH-001"
+    name: "Auth Module Tests"
+    prompt: |
+      Create comprehensive unit tests for the authentication module.
+      Include tests for:
+      - User registration with validation
+      - Login with correct/incorrect credentials
+      - Password reset flow
+      - Token generation and validation
+      - Session management
+      Use pytest and aim for >90% code coverage.
+    expected_deliverable: "test_auth.py with comprehensive test coverage"
+    priority: high
+    pr_strategy: "aggressive"  # Create PR after 30 minutes
+    auto_pr_timeout: 1800  # 30 minutes
+    retry_policy:
+      max_attempts: 5
+      backoff_factor: 1.5
+    repository: "karolswdev/my-auth-service"
+    dependencies: ["INIT-001"]
+
+  # Documentation task
+  - id: "DOC-001"
+    name: "API Documentation"
+    prompt: |
+      Document all REST API endpoints in OpenAPI 3.0 format.
+      Include:
+      - Endpoint descriptions
+      - Request/response schemas
+      - Authentication requirements
+      - Example requests and responses
+      - Error codes and descriptions
+    expected_deliverable: "openapi.yaml with complete API specification"
+    priority: medium
+    dependencies: ["AUTH-001"]
+
+  # Refactoring task
+  - id: "REFACTOR-001"
+    name: "Database Cleanup"
+    prompt: |
+      Refactor the database access layer:
+      - Extract common query patterns into repository classes
+      - Add proper transaction management
+      - Implement connection pooling
+      - Add query performance logging
+      - Update all existing code to use new patterns
+    expected_deliverable: "Refactored database layer with repository pattern"
+    priority: low
+    pr_strategy: "patient"  # Give AI 2 hours to work
+    auto_pr_timeout: 7200  # 2 hours
+
+  # Bug fix task
+  - id: "BUG-001"
+    name: "Fix Memory Leak"
+    prompt: |
+      Investigate and fix the memory leak in the WebSocket handler.
+      The issue occurs after approximately 1000 connections.
+      Add proper cleanup and resource management.
+      Include a test that verifies the fix.
+    expected_deliverable: "Fixed WebSocket handler with no memory leaks"
+    priority: high
+    retry_policy:
+      max_attempts: 2  # Fewer retries for debugging tasks
+
+  # Feature implementation
+  - id: "FEAT-001"
+    name: "Add Dark Mode"
+    prompt: |
+      Implement dark mode support for the web application:
+      - Add theme toggle button in header
+      - Store user preference in localStorage
+      - Create dark theme CSS variables
+      - Ensure all components support theming
+      - Add smooth transition animations
+    expected_deliverable: "Dark mode implementation with toggle and persistence"
+    priority: medium
+    dependencies: ["DOC-001", "REFACTOR-001"]
+
+  # Performance optimization
+  - id: "PERF-001"
+    name: "Optimize Queries"
+    prompt: |
+      Optimize database queries for the dashboard:
+      - Add appropriate indexes
+      - Implement query result caching
+      - Use database views for complex aggregations
+      - Add query execution time logging
+      Generate a performance report showing before/after metrics
+    expected_deliverable: "Optimized queries with 50%+ performance improvement"
+    priority: medium
+    timeout: 1500
+
+  # Security task
+  - id: "SEC-001"
+    name: "Security Audit"
+    prompt: |
+      Perform a security audit of the authentication system:
+      - Check for SQL injection vulnerabilities
+      - Verify password hashing (should use bcrypt/argon2)
+      - Ensure proper session invalidation
+      - Check for timing attacks in login
+      - Verify rate limiting is in place
+      Create a security report with findings and fixes
+    expected_deliverable: "security-report.md with audit results and fixes"
+    priority: high
+    dependencies: ["AUTH-001"]
+
+  # Migration task
+  - id: "MIGRATE-001"
+    name: "DB Migration"
+    prompt: |
+      Create a database migration to add user roles:
+      - Add roles table (id, name, permissions JSON)
+      - Add user_roles junction table
+      - Migrate existing users to 'standard' role
+      - Add admin user with elevated permissions
+      - Include rollback migration
+    expected_deliverable: "Database migration files for user roles"
+    priority: high
+    dependencies: ["SEC-001"]
+
+  # Code review task
+  - id: "REVIEW-001"
+    name: "Review PR #42"
+    prompt: |
+      Review the pull request #42 which implements the payment system:
+      - Check for security vulnerabilities
+      - Verify error handling
+      - Ensure code follows project style guide
+      - Check test coverage
+      - Suggest performance improvements
+      Provide detailed feedback with specific code suggestions
+    expected_deliverable: "Comprehensive PR review with actionable feedback"
+    priority: medium
+    timeout: 1800  # 30 minutes for thorough review
+
+# Task groups (optional) - for organizing related tasks
+groups:
+  - name: "Authentication Sprint"
+    tasks: ["AUTH-001", "SEC-001", "MIGRATE-001"]
+    description: "All authentication-related tasks"
+
+  - name: "Performance Sprint"
+    tasks: ["REFACTOR-001", "PERF-001"]
+    description: "Database and query optimization"
+
+  - name: "Documentation"
+    tasks: ["DOC-001", "REVIEW-001"]
+    description: "Documentation and review tasks"
+
+# Execution order (optional) - override dependency resolution
+execution_order:
+  - "INIT-001"
+  - parallel:  # These can run simultaneously
+    - "AUTH-001"
+    - "BUG-001"
+  - "DOC-001"
+  - parallel:
+    - "REFACTOR-001"
+    - "SEC-001"
+  - "MIGRATE-001"
+  - parallel:
+    - "FEAT-001"
+    - "PERF-001"
+    - "REVIEW-001"
+
+# Notifications (optional)
+notifications:
+  on_complete:
+    - type: "terminal"
+      message: "✨ All tasks completed successfully!"
+    - type: "sound"
+      file: "success.wav"
+  on_failure:
+    - type: "terminal"
+      message: "❌ Task failed: {task_id} - {task_name}"
+    - type: "sound"
+      file: "error.wav"
+
+# Metadata (optional)
+metadata:
+  author: "karolswdev"
+  created: "2024-11-11"
+  version: "1.0.0"
+  description: "Example task definitions for Conductor"
+  tags: ["example", "development", "automation"]
