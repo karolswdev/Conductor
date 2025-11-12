@@ -250,7 +250,12 @@ class TUIOrchestrator:
             # Step 1: Create a new tab for this task
             logger.info(f"Creating new tab for task {task.id}")
             tab_index = await self.browser.create_tab()
+
+            logger.info(f"Switching to tab {tab_index} for task {task.id}")
             await self.browser.switch_tab(tab_index)
+
+            # Give browser a moment to actually switch tabs
+            await asyncio.sleep(0.5)
 
             self.app.update_execution(
                 task=task,
@@ -262,6 +267,7 @@ class TUIOrchestrator:
             # Step 2: Navigate to Claude Code
             logger.info(f"Navigating to Claude Code for task {task.id}")
             await self.browser.navigate("https://claude.ai/code")
+            logger.info(f"Navigation to Claude Code completed for task {task.id}")
             await asyncio.sleep(3.0)
 
             self.app.update_execution(

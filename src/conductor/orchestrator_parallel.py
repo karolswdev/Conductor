@@ -337,10 +337,16 @@ class ParallelOrchestrator:
             async with self.tab_creation_lock:
                 logger.info(f"Creating new tab for task {task.id}")
                 tab_index = await browser.create_tab()
+
+                logger.info(f"Switching to tab {tab_index} for task {task.id}")
                 await browser.switch_tab(tab_index)
+
+                # Give browser a moment to actually switch tabs
+                await asyncio.sleep(0.5)
 
                 logger.info(f"Navigating to Claude Code for task {task.id}")
                 await browser.navigate("https://claude.ai/code")
+                logger.info(f"Navigation to Claude Code completed for task {task.id}")
 
             # Wait for page to load
             await asyncio.sleep(3.0)
