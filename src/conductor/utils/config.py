@@ -43,6 +43,20 @@ class UIConfig(BaseModel):
     splash_duration: float = Field(default=2.0, ge=0.0)
 
 
+class ExecutionConfig(BaseModel):
+    """Task execution configuration."""
+
+    max_parallel_tasks: int = Field(
+        default=1,
+        ge=1,
+        le=10,
+        description="Maximum number of tasks to run in parallel (1-10)",
+    )
+    parallel_mode: bool = Field(
+        default=False, description="Enable parallel task execution"
+    )
+
+
 class Config(BaseModel):
     """Main configuration for Conductor."""
 
@@ -50,6 +64,7 @@ class Config(BaseModel):
     auth: AuthConfig = Field(default_factory=AuthConfig)
     retry: RetryConfig = Field(default_factory=RetryConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
+    execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     default_repository: Optional[str] = Field(default=None)
 
     @classmethod

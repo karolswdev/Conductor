@@ -23,10 +23,19 @@ retry:
 
 # UI configuration
 ui:
-  theme: "default"  # options: default, cyberpunk, minimal
+  theme: "default"  # options: default, cyberpunk, minimal, solarized-dark, dracula
   refresh_rate: 10  # FPS
   show_splash: true
   splash_duration: 2.0
+
+# Execution configuration
+execution:
+  parallel_mode: false  # Enable parallel task execution
+  max_parallel_tasks: 1  # Maximum concurrent tasks (1-10)
+  # Examples:
+  #   1 = Sequential execution (default)
+  #   3 = Run up to 3 tasks simultaneously
+  #   5 = Run up to 5 tasks simultaneously
 
 # Default repository (can be overridden per task or via CLI)
 default_repository: null  # e.g., "karolswdev/my-project"
