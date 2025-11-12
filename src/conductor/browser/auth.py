@@ -67,12 +67,13 @@ class AuthenticationFlow:
         self.status = AuthStatus.NOT_STARTED
         self._start_time: Optional[datetime] = None
 
-    async def start(self, headless: bool = False) -> AuthStatus:
+    async def start(self, headless: bool = False, wait_for_user_input: bool = True) -> AuthStatus:
         """
         Start the authentication flow.
 
         Args:
             headless: Whether to run browser in headless mode (default: False for manual auth)
+            wait_for_user_input: If True, wait for user to press Enter. If False, use auto-detection.
 
         Returns:
             Final authentication status
@@ -97,10 +98,14 @@ class AuthenticationFlow:
 
             # Step 3: Wait for user to authenticate
             self.status = AuthStatus.WAITING_FOR_USER
-            logger.info(f"Waiting for user authentication (timeout: {self.timeout}s)")
+            logger.info("Waiting for user authentication")
 
-            # Step 4: Poll for successful login
-            success = await self._wait_for_login()
+            if wait_for_user_input:
+                # Simple approach: wait for user confirmation
+                success = await self._wait_for_user_confirmation()
+            else:
+                # Complex approach: try to auto-detect login (less reliable)
+                success = await self._wait_for_login()
 
             if success:
                 self.status = AuthStatus.AUTHENTICATED
@@ -121,6 +126,35 @@ class AuthenticationFlow:
             self.status = AuthStatus.FAILED
             raise MCPError(f"Authentication failed: {e}") from e
 
+    async def _wait_for_user_confirmation(self) -> bool:
+        """
+        Wait for user to confirm they've logged in by pressing Enter.
+
+        Returns:
+            True if user confirmed, False if timeout
+        """
+        import sys
+
+        # Use asyncio to run input() in thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+
+        try:
+            # Wait with timeout
+            await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: input()  # Will wait for Enter key
+                ),
+                timeout=self.timeout
+            )
+
+            logger.info("User confirmed authentication")
+            return True
+
+        except asyncio.TimeoutError:
+            logger.warning(f"User did not confirm authentication within {self.timeout}s")
+            return False
+
     async def _wait_for_login(self) -> bool:
         """
         Wait for successful login by polling for specific elements.
@@ -129,9 +163,12 @@ class AuthenticationFlow:
             True if login detected, False if timeout
         """
         end_time = datetime.now() + timedelta(seconds=self.timeout)
+        last_progress_log = 0
 
         while datetime.now() < end_time:
             self.status = AuthStatus.CHECKING_LOGIN
+            elapsed = (datetime.now() - self._start_time).total_seconds()
+            remaining = self.timeout - elapsed
 
             # Check if any of the success selectors are present
             for selector in self.LOGIN_SUCCESS_SELECTORS:
@@ -150,14 +187,17 @@ class AuthenticationFlow:
                     logger.debug(f"Selector {selector} not found: {e}")
                     continue
 
+            # Log progress every 10 seconds to avoid spam
+            if elapsed - last_progress_log >= 10:
+                logger.info(f"Still waiting for login... ({remaining:.0f}s remaining)")
+                last_progress_log = elapsed
+
             # Brief pause before next check
             await asyncio.sleep(self.check_interval)
 
-            # Log progress
-            elapsed = (datetime.now() - self._start_time).total_seconds()
-            remaining = self.timeout - elapsed
-            logger.debug(f"Still waiting for login... ({remaining:.0f}s remaining)")
-
+        logger.warning("Authentication timeout - login was not detected")
+        logger.warning("Note: Detection may have failed even if you logged in successfully")
+        logger.warning("If you completed login, the app may still work")
         return False
 
     async def check_authenticated(self) -> bool:

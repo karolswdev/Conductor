@@ -186,35 +186,63 @@ class BrowserController:
         state: str = "visible",
     ) -> bool:
         """
-        Wait for an element to appear.
+        Wait for an element to appear by checking snapshots.
+
+        Note: Playwright MCP doesn't have a direct wait_for_selector tool.
+        This implementation uses browser_snapshot to check for elements.
 
         Args:
-            selector: CSS selector for the element
+            selector: CSS selector for the element (simplified: checks if text appears in snapshot)
             timeout: Maximum time to wait
-            state: Element state to wait for (visible, attached, etc.)
+            state: Element state to wait for (visible, attached, etc.) - not fully supported
 
         Returns:
-            True if element appeared, False if timeout
+            True if element found in snapshot, False if timeout
 
         Raises:
             MCPError: If wait fails
         """
+        import time
+
+        start_time = time.time()
+
         try:
-            logger.debug(f"Waiting for selector: {selector} (state={state})")
+            logger.debug(f"Waiting for selector: {selector} (timeout={timeout}s)")
 
-            # browser_wait_for uses text or time, not selectors
-            # This is a simplified approximation
-            await self.client.call_tool(
-                "browser_wait_for",
-                {
-                    "text": selector,
-                },
-            )
+            while time.time() - start_time < timeout:
+                try:
+                    # Take a snapshot and check if selector text appears
+                    result = await self.client.call_tool("browser_snapshot", {})
 
-            return True
+                    # Parse the response to see if selector-like text is present
+                    snapshot_text = ""
+                    if "content" in result and isinstance(result["content"], list):
+                        for item in result["content"]:
+                            if hasattr(item, "text"):
+                                snapshot_text += item.text
+                            elif isinstance(item, dict) and "text" in item:
+                                snapshot_text += item["text"]
+
+                    # Simple check: if we're looking for data-testid, check if it appears
+                    # This is a simplified heuristic - not perfect but better than nothing
+                    selector_parts = selector.replace("[", "").replace("]", "").replace("'", "").replace('"', '')
+
+                    if selector_parts in snapshot_text or any(part in snapshot_text for part in selector_parts.split("=")):
+                        logger.debug(f"Found indicator of selector {selector} in snapshot")
+                        return True
+
+                    # Brief pause before retry
+                    await asyncio.sleep(2.0)
+
+                except Exception as e:
+                    logger.debug(f"Snapshot check failed: {e}")
+                    await asyncio.sleep(2.0)
+
+            logger.debug(f"Timeout waiting for selector: {selector}")
+            return False
 
         except Exception as e:
-            logger.warning(f"Wait for selector timed out: {e}")
+            logger.warning(f"Wait for selector failed: {e}")
             return False
 
     async def get_text(self, selector: str) -> str:
@@ -289,6 +317,147 @@ class BrowserController:
         except Exception as e:
             logger.error(f"Get URL failed: {e}")
             raise MCPError(f"Failed to get current URL: {e}") from e
+
+    async def create_tab(self) -> int:
+        """
+        Create a new browser tab.
+
+        Returns:
+            Index of the new tab
+
+        Raises:
+            MCPError: If tab creation fails
+        """
+        try:
+            logger.debug("Creating new tab")
+
+            result = await self.client.call_tool(
+                "browser_tabs",
+                {
+                    "action": "new",
+                },
+            )
+
+            # Get the list of tabs to find the new one
+            tabs = await self.list_tabs()
+            new_tab_index = len(tabs) - 1
+
+            logger.info(f"Created new tab at index {new_tab_index}")
+            return new_tab_index
+
+        except Exception as e:
+            logger.error(f"Failed to create tab: {e}")
+            raise MCPError(f"Tab creation failed: {e}") from e
+
+    async def list_tabs(self) -> list:
+        """
+        List all open browser tabs.
+
+        Returns:
+            List of tab information
+
+        Raises:
+            MCPError: If listing tabs fails
+        """
+        try:
+            result = await self.client.call_tool(
+                "browser_tabs",
+                {
+                    "action": "list",
+                },
+            )
+
+            # Parse the result to get tab list
+            if "content" in result and isinstance(result["content"], list):
+                for item in result["content"]:
+                    if hasattr(item, "text"):
+                        # Parse the text content
+                        return self._parse_tab_list(item.text)
+                    elif isinstance(item, dict) and "text" in item:
+                        return self._parse_tab_list(item["text"])
+                return []
+            elif "tabs" in result:
+                return result["tabs"]
+            else:
+                return []
+
+        except Exception as e:
+            logger.error(f"Failed to list tabs: {e}")
+            raise MCPError(f"Tab listing failed: {e}") from e
+
+    async def switch_tab(self, index: int) -> None:
+        """
+        Switch to a specific browser tab.
+
+        Args:
+            index: Index of the tab to switch to
+
+        Raises:
+            MCPError: If tab switch fails
+        """
+        try:
+            logger.debug(f"Switching to tab {index}")
+
+            await self.client.call_tool(
+                "browser_tabs",
+                {
+                    "action": "select",
+                    "index": index,
+                },
+            )
+
+            logger.info(f"Switched to tab {index}")
+
+        except Exception as e:
+            logger.error(f"Failed to switch to tab {index}: {e}")
+            raise MCPError(f"Tab switch failed: {e}") from e
+
+    async def close_tab(self, index: int) -> None:
+        """
+        Close a specific browser tab.
+
+        Args:
+            index: Index of the tab to close
+
+        Raises:
+            MCPError: If tab close fails
+        """
+        try:
+            logger.debug(f"Closing tab {index}")
+
+            await self.client.call_tool(
+                "browser_tabs",
+                {
+                    "action": "close",
+                    "index": index,
+                },
+            )
+
+            logger.info(f"Closed tab {index}")
+
+        except Exception as e:
+            logger.error(f"Failed to close tab {index}: {e}")
+            raise MCPError(f"Tab close failed: {e}") from e
+
+    def _parse_tab_list(self, text: str) -> list:
+        """
+        Parse tab list from text content.
+
+        Args:
+            text: Text content containing tab information
+
+        Returns:
+            List of tab info dictionaries
+        """
+        # Simple parsing - this may need adjustment based on actual format
+        tabs = []
+        lines = text.strip().split("\n")
+
+        for i, line in enumerate(lines):
+            if line.strip():
+                tabs.append({"index": i, "title": line.strip()})
+
+        return tabs
 
     async def close(self) -> None:
         """Close the browser."""

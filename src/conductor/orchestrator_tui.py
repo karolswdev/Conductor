@@ -105,7 +105,10 @@ class TUIOrchestrator:
             check_interval=self.config.auth.check_interval,
         )
 
-        status = await self.auth_flow.start(headless=self.config.auth.headless)
+        status = await self.auth_flow.start(
+            headless=self.config.auth.headless,
+            wait_for_user_input=True
+        )
 
         if status == AuthStatus.AUTHENTICATED:
             self.app.notify(
@@ -231,48 +234,212 @@ class TUIOrchestrator:
 
     async def _execute_single_task(self, task: Task, start_time: datetime) -> None:
         """
-        Execute a single task attempt.
+        Execute a single task attempt in its own browser tab.
 
         Args:
             task: Task to execute
             start_time: When execution started
         """
-        # Simulate task execution with progress updates
-        # TODO: Replace with actual Claude Code interaction
+        tab_index = None
 
-        steps = 10
-        for step in range(steps + 1):
-            progress = step / steps
-            elapsed = (datetime.now() - start_time).total_seconds()
+        try:
+            # Step 1: Create a new tab for this task
+            logger.info(f"Creating new tab for task {task.id}")
+            tab_index = await self.browser.create_tab()
+            await self.browser.switch_tab(tab_index)
 
             self.app.update_execution(
                 task=task,
-                progress=progress,
-                elapsed=elapsed,
+                progress=0.1,
+                elapsed=(datetime.now() - start_time).total_seconds(),
                 retries=task.retry_count,
             )
 
-            await asyncio.sleep(0.5)  # Simulate work
+            # Step 2: Navigate to Claude Code
+            logger.info(f"Navigating to Claude Code for task {task.id}")
+            await self.browser.navigate("https://claude.ai/code")
+            await asyncio.sleep(3.0)
 
-        # Create session
-        session_id = f"session_{task.id}_{int(datetime.now().timestamp())}"
-        branch_name = f"claude/{task.id.lower()}-{int(datetime.now().timestamp())}"
+            self.app.update_execution(
+                task=task,
+                progress=0.2,
+                elapsed=(datetime.now() - start_time).total_seconds(),
+                retries=task.retry_count,
+            )
 
-        self.session_manager.add_session(
-            session_id=session_id,
-            task_id=task.id,
-            branch_name=branch_name,
-            url=f"https://claude.ai/code/{session_id}",
-        )
+            # Step 3: Try to create new session
+            try:
+                await self.browser.click("[data-testid='new-session-button']")
+                await asyncio.sleep(2.0)
+            except Exception as e:
+                logger.warning(f"Could not click new session button: {e}")
 
-        # Update browser preview
-        self.app.update_browser(
-            url=f"https://claude.ai/code/{session_id}",
-            branch=branch_name,
-            preview="Task execution completed",
-        )
+            # Step 4: Get session URL
+            current_url = await self.browser.get_current_url()
+            session_id = self._extract_session_id_from_url(current_url)
 
-        task.complete(session_id=session_id, branch_name=branch_name)
+            self.app.update_execution(
+                task=task,
+                progress=0.3,
+                elapsed=(datetime.now() - start_time).total_seconds(),
+                retries=task.retry_count,
+            )
+
+            # Step 5: Submit task prompt
+            logger.info(f"Submitting task prompt for task {task.id}")
+            try:
+                await self.browser.fill("textarea[placeholder*='message']", task.prompt)
+                await asyncio.sleep(1.0)
+                await self.browser.click("button[type='submit']")
+            except Exception as e:
+                logger.warning(f"Could not submit prompt automatically: {e}")
+
+            self.app.update_execution(
+                task=task,
+                progress=0.4,
+                elapsed=(datetime.now() - start_time).total_seconds(),
+                retries=task.retry_count,
+            )
+
+            # Step 6: Monitor for completion
+            logger.info(f"Waiting for task {task.id} to complete...")
+            await self._wait_for_task_completion(task, tab_index, start_time)
+
+            self.app.update_execution(
+                task=task,
+                progress=0.9,
+                elapsed=(datetime.now() - start_time).total_seconds(),
+                retries=task.retry_count,
+            )
+
+            # Step 7: Extract branch name
+            branch_name = f"claude/{task.id.lower()}"
+            try:
+                page_text = await self.browser.get_text("body")
+                extracted_branch = self._extract_branch_name_from_page(page_text)
+                if extracted_branch:
+                    branch_name = extracted_branch
+            except Exception as e:
+                logger.debug(f"Could not extract branch name: {e}")
+
+            # Step 8: Record session
+            final_url = await self.browser.get_current_url()
+            self.session_manager.add_session(
+                session_id=session_id or f"session_{task.id}_{int(datetime.now().timestamp())}",
+                task_id=task.id,
+                branch_name=branch_name,
+                url=final_url,
+            )
+
+            # Update browser preview
+            self.app.update_browser(
+                url=final_url,
+                branch=branch_name,
+                preview=f"Task {task.id} completed",
+            )
+
+            self.app.update_execution(
+                task=task,
+                progress=1.0,
+                elapsed=(datetime.now() - start_time).total_seconds(),
+                retries=task.retry_count,
+            )
+
+            task.complete(
+                session_id=session_id or f"session_{task.id}",
+                branch_name=branch_name,
+            )
+
+        except Exception as e:
+            logger.error(f"Task {task.id} execution failed: {e}")
+            raise
+
+    def _extract_session_id_from_url(self, url: str) -> Optional[str]:
+        """Extract session ID from Claude Code URL."""
+        if "/code/" in url:
+            parts = url.split("/code/")
+            if len(parts) > 1:
+                session_id = parts[1].split("?")[0].split("#")[0]
+                return session_id if session_id else None
+        return None
+
+    def _extract_branch_name_from_page(self, page_text: str) -> Optional[str]:
+        """Extract git branch name from page content."""
+        import re
+
+        patterns = [
+            r"branch[:\s]+([a-zA-Z0-9/_-]+)",
+            r"claude/([a-zA-Z0-9/_-]+)",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, page_text, re.IGNORECASE)
+            if match:
+                return match.group(1) if "claude/" in pattern else f"claude/{match.group(1)}"
+
+        return None
+
+    async def _wait_for_task_completion(
+        self,
+        task: Task,
+        tab_index: int,
+        start_time: datetime,
+        timeout: int = 600,
+        check_interval: float = 10.0,
+    ) -> None:
+        """
+        Wait for a task to complete by monitoring the browser tab.
+
+        Args:
+            task: Task being executed
+            tab_index: Index of the tab running the task
+            start_time: When task execution started
+            timeout: Maximum time to wait in seconds
+            check_interval: How often to check for completion
+        """
+        import time
+
+        check_start = time.time()
+
+        while time.time() - check_start < timeout:
+            try:
+                # Switch to the task's tab
+                await self.browser.switch_tab(tab_index)
+
+                # Check for completion indicators
+                page_text = await self.browser.get_text("body")
+
+                completion_indicators = [
+                    "completed",
+                    "finished",
+                    "done",
+                    "push",
+                ]
+
+                page_text_lower = page_text.lower()
+                if any(indicator in page_text_lower for indicator in completion_indicators):
+                    logger.info(f"Task {task.id} appears to be complete")
+                    return
+
+                # Update progress based on elapsed time
+                elapsed = (datetime.now() - start_time).total_seconds()
+                # Progress from 0.4 to 0.9 based on time elapsed
+                progress = min(0.9, 0.4 + (0.5 * (time.time() - check_start) / timeout))
+                self.app.update_execution(
+                    task=task,
+                    progress=progress,
+                    elapsed=elapsed,
+                    retries=task.retry_count,
+                )
+
+                await asyncio.sleep(check_interval)
+
+            except Exception as e:
+                logger.debug(f"Error checking task completion: {e}")
+                await asyncio.sleep(check_interval)
+
+        logger.warning(f"Task {task.id} completion check timed out after {timeout}s")
+        logger.info("Task may still be running - check the browser tab manually")
 
     def _show_completion(self) -> None:
         """Show completion summary."""
