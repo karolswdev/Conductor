@@ -489,12 +489,14 @@ class TUIOrchestrator:
         self.app.notify(summary, title="🎭 Conductor Complete", timeout=0)
 
     async def _cleanup(self) -> None:
-        """Clean up resources."""
-        if self.browser:
-            await self.browser.close()
+        """Clean up resources.
 
-        if self.mcp_client and self.mcp_client.is_connected:
-            await self.mcp_client.disconnect()
+        Note: If browser/mcp_client were passed in from outside (e.g., pre-authenticated),
+        we should NOT close them as they're managed externally.
+        """
+        # Don't close browser/MCP if they were passed in from outside
+        # The caller will handle cleanup
+        logger.info("Skipping browser/MCP cleanup (managed externally)")
 
         self.app.notify("Cleanup complete", title="Shutdown")
 
@@ -553,15 +555,31 @@ async def run_with_tui(config: Config, task_list: TaskList) -> None:
     orchestrator.browser = browser
     orchestrator.auth_flow = auth_flow
 
-    # Run orchestrator in background
-    async def run_orchestrator():
-        await orchestrator.run()
-        # Keep app running after orchestration completes
-        await asyncio.sleep(5)
-        app.exit()
+    try:
+        # Run orchestrator in background
+        async def run_orchestrator():
+            await orchestrator.run()
+            # Keep app running after orchestration completes
+            await asyncio.sleep(5)
+            app.exit()
 
-    # Start orchestrator as background task
-    asyncio.create_task(run_orchestrator())
+        # Start orchestrator as background task
+        asyncio.create_task(run_orchestrator())
 
-    # Run the TUI app
-    await app.run_async()
+        # Run the TUI app
+        await app.run_async()
+
+    finally:
+        # Clean up browser and MCP connection we created
+        logger.info("Cleaning up browser and MCP connection")
+        if browser:
+            try:
+                await browser.close()
+            except Exception as e:
+                logger.warning(f"Error closing browser: {e}")
+
+        if mcp_client and mcp_client.is_connected:
+            try:
+                await mcp_client.disconnect()
+            except Exception as e:
+                logger.warning(f"Error disconnecting MCP client: {e}")

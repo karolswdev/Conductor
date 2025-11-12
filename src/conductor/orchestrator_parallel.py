@@ -618,20 +618,17 @@ class ParallelOrchestrator:
             self.app.notify(summary, title="🎭 Conductor Complete", timeout=0)
 
     async def _cleanup(self) -> None:
-        """Clean up resources."""
+        """Clean up resources.
+
+        Note: If browser/mcp_client were passed in from outside (e.g., pre-authenticated),
+        we should NOT close them as they're managed externally.
+        """
         logger.info("Cleaning up parallel orchestrator resources")
 
-        if self.browser:
-            try:
-                await self.browser.close()
-            except Exception as e:
-                logger.warning(f"Error closing browser: {e}")
-
-        if self.mcp_client and self.mcp_client.is_connected:
-            try:
-                await self.mcp_client.disconnect()
-            except Exception as e:
-                logger.warning(f"Error disconnecting MCP client: {e}")
+        # Don't close browser/MCP if they were passed in from outside
+        # Check if we initialized them ourselves by seeing if they were None at start
+        # For now, just log but don't close - the caller will handle cleanup
+        logger.info("Skipping browser/MCP cleanup (managed externally)")
 
         if self.app:
             self.app.notify("Cleanup complete", title="Shutdown")
@@ -697,15 +694,31 @@ async def run_with_tui_parallel(config: Config, task_list: TaskList) -> None:
     orchestrator.mcp_client = mcp_client
     orchestrator.browser = browser
 
-    # Run orchestrator in background
-    async def run_orchestrator():
-        await orchestrator.run()
-        # Keep app running after orchestration completes
-        await asyncio.sleep(5)
-        app.exit()
+    try:
+        # Run orchestrator in background
+        async def run_orchestrator():
+            await orchestrator.run()
+            # Keep app running after orchestration completes
+            await asyncio.sleep(5)
+            app.exit()
 
-    # Start orchestrator as background task
-    asyncio.create_task(run_orchestrator())
+        # Start orchestrator as background task
+        asyncio.create_task(run_orchestrator())
 
-    # Run the TUI app
-    await app.run_async()
+        # Run the TUI app
+        await app.run_async()
+
+    finally:
+        # Clean up browser and MCP connection we created
+        logger.info("Cleaning up browser and MCP connection")
+        if browser:
+            try:
+                await browser.close()
+            except Exception as e:
+                logger.warning(f"Error closing browser: {e}")
+
+        if mcp_client and mcp_client.is_connected:
+            try:
+                await mcp_client.disconnect()
+            except Exception as e:
+                logger.warning(f"Error disconnecting MCP client: {e}")
