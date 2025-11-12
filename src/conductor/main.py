@@ -249,5 +249,57 @@ def version():
     console.print("\n[italic]Orchestrating intelligence, one task at a time[/italic]")
 
 
+@cli.command()
+@click.option(
+    "--config",
+    "-c",
+    type=click.Path(path_type=Path),
+    help="Path to configuration file",
+)
+@click.option(
+    "--headless",
+    is_flag=True,
+    help="Run browser in headless mode (skips visibility check)",
+)
+@click.option(
+    "--debug",
+    is_flag=True,
+    help="Enable debug logging",
+)
+def doctor(config: Path | None, headless: bool, debug: bool):
+    """
+    Run diagnostic checks to verify Conductor health.
+
+    Checks:
+    - MCP server connectivity
+    - Browser launch capability
+    - Navigation functionality
+    - User visibility confirmation
+    """
+    if debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    try:
+        from conductor.doctor import run_doctor
+
+        # Load configuration
+        cfg = load_config(config)
+
+        # Run diagnostics
+        success = asyncio.run(run_doctor(cfg, headless=headless))
+
+        if not success:
+            raise click.Abort()
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Doctor interrupted by user[/yellow]")
+        raise click.Abort()
+
+    except Exception as e:
+        logger.exception("Unexpected error during diagnostics")
+        console.print(f"[red]Error:[/red] {e}")
+        raise click.Abort()
+
+
 if __name__ == "__main__":
     cli()
