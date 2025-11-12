@@ -186,35 +186,63 @@ class BrowserController:
         state: str = "visible",
     ) -> bool:
         """
-        Wait for an element to appear.
+        Wait for an element to appear by checking snapshots.
+
+        Note: Playwright MCP doesn't have a direct wait_for_selector tool.
+        This implementation uses browser_snapshot to check for elements.
 
         Args:
-            selector: CSS selector for the element
+            selector: CSS selector for the element (simplified: checks if text appears in snapshot)
             timeout: Maximum time to wait
-            state: Element state to wait for (visible, attached, etc.)
+            state: Element state to wait for (visible, attached, etc.) - not fully supported
 
         Returns:
-            True if element appeared, False if timeout
+            True if element found in snapshot, False if timeout
 
         Raises:
             MCPError: If wait fails
         """
+        import time
+
+        start_time = time.time()
+
         try:
-            logger.debug(f"Waiting for selector: {selector} (state={state})")
+            logger.debug(f"Waiting for selector: {selector} (timeout={timeout}s)")
 
-            # browser_wait_for uses text or time, not selectors
-            # This is a simplified approximation
-            await self.client.call_tool(
-                "browser_wait_for",
-                {
-                    "text": selector,
-                },
-            )
+            while time.time() - start_time < timeout:
+                try:
+                    # Take a snapshot and check if selector text appears
+                    result = await self.client.call_tool("browser_snapshot", {})
 
-            return True
+                    # Parse the response to see if selector-like text is present
+                    snapshot_text = ""
+                    if "content" in result and isinstance(result["content"], list):
+                        for item in result["content"]:
+                            if hasattr(item, "text"):
+                                snapshot_text += item.text
+                            elif isinstance(item, dict) and "text" in item:
+                                snapshot_text += item["text"]
+
+                    # Simple check: if we're looking for data-testid, check if it appears
+                    # This is a simplified heuristic - not perfect but better than nothing
+                    selector_parts = selector.replace("[", "").replace("]", "").replace("'", "").replace('"', '')
+
+                    if selector_parts in snapshot_text or any(part in snapshot_text for part in selector_parts.split("=")):
+                        logger.debug(f"Found indicator of selector {selector} in snapshot")
+                        return True
+
+                    # Brief pause before retry
+                    await asyncio.sleep(2.0)
+
+                except Exception as e:
+                    logger.debug(f"Snapshot check failed: {e}")
+                    await asyncio.sleep(2.0)
+
+            logger.debug(f"Timeout waiting for selector: {selector}")
+            return False
 
         except Exception as e:
-            logger.warning(f"Wait for selector timed out: {e}")
+            logger.warning(f"Wait for selector failed: {e}")
             return False
 
     async def get_text(self, selector: str) -> str:

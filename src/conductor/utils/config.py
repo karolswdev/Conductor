@@ -19,7 +19,7 @@ class MCPConfig(BaseModel):
 class AuthConfig(BaseModel):
     """Authentication configuration."""
 
-    timeout: int = Field(default=120, ge=30, le=600)
+    timeout: int = Field(default=300, ge=30, le=600, description="Time allowed for manual login (seconds)")
     check_interval: float = Field(default=2.0, ge=0.5)
     headless: bool = Field(default=False)
 

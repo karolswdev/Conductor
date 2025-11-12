@@ -129,9 +129,12 @@ class AuthenticationFlow:
             True if login detected, False if timeout
         """
         end_time = datetime.now() + timedelta(seconds=self.timeout)
+        last_progress_log = 0
 
         while datetime.now() < end_time:
             self.status = AuthStatus.CHECKING_LOGIN
+            elapsed = (datetime.now() - self._start_time).total_seconds()
+            remaining = self.timeout - elapsed
 
             # Check if any of the success selectors are present
             for selector in self.LOGIN_SUCCESS_SELECTORS:
@@ -150,14 +153,17 @@ class AuthenticationFlow:
                     logger.debug(f"Selector {selector} not found: {e}")
                     continue
 
+            # Log progress every 10 seconds to avoid spam
+            if elapsed - last_progress_log >= 10:
+                logger.info(f"Still waiting for login... ({remaining:.0f}s remaining)")
+                last_progress_log = elapsed
+
             # Brief pause before next check
             await asyncio.sleep(self.check_interval)
 
-            # Log progress
-            elapsed = (datetime.now() - self._start_time).total_seconds()
-            remaining = self.timeout - elapsed
-            logger.debug(f"Still waiting for login... ({remaining:.0f}s remaining)")
-
+        logger.warning("Authentication timeout - login was not detected")
+        logger.warning("Note: Detection may have failed even if you logged in successfully")
+        logger.warning("If you completed login, the app may still work")
         return False
 
     async def check_authenticated(self) -> bool:
