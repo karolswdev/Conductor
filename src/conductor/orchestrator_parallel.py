@@ -328,23 +328,13 @@ class ParallelOrchestrator:
         tab_index = None
 
         try:
-            # Step 1: Create a new tab for this task
-            logger.info(f"Creating new tab for task {task.id}")
-            tab_index = await browser.create_tab()
+            # Step 1: Create a new tab for this task AND navigate to Claude Code atomically
+            # This prevents race conditions in parallel mode
+            logger.info(f"Creating new tab with Claude Code URL for task {task.id}")
+            tab_index = await browser.create_tab(url="https://claude.ai/code")
             await browser.switch_tab(tab_index)
 
-            # Update progress
-            if self.app:
-                self.app.update_execution(
-                    task=task,
-                    progress=0.1,
-                    elapsed=(datetime.now() - start_time).total_seconds(),
-                    retries=task.retry_count,
-                )
-
-            # Step 2: Navigate to Claude Code
-            logger.info(f"Navigating to Claude Code for task {task.id}")
-            await browser.navigate("https://claude.ai/code")
+            # Wait for page to load
             await asyncio.sleep(3.0)
 
             # Update progress
@@ -356,7 +346,7 @@ class ParallelOrchestrator:
                     retries=task.retry_count,
                 )
 
-            # Step 3: Select repository if specified
+            # Step 2: Select repository if specified
             if hasattr(task, 'repository') and task.repository:
                 try:
                     logger.info(f"Selecting repository: {task.repository}")
@@ -384,7 +374,7 @@ class ParallelOrchestrator:
                     retries=task.retry_count,
                 )
 
-            # Step 4: Submit task prompt
+            # Step 3: Submit task prompt
             logger.info(f"Submitting task prompt for task {task.id}")
             try:
                 await browser.fill("Message input textbox", task.prompt)
@@ -394,7 +384,7 @@ class ParallelOrchestrator:
                 logger.warning(f"Could not submit prompt automatically: {e}")
                 raise
 
-            # Step 5: Wait for session URL to update
+            # Step 4: Wait for session URL to update
             await asyncio.sleep(3.0)
             current_url = await browser.get_current_url()
             session_id = self._extract_session_id_from_url(current_url)
@@ -411,7 +401,7 @@ class ParallelOrchestrator:
                     retries=task.retry_count,
                 )
 
-            # Step 6: Monitor for completion
+            # Step 5: Monitor for completion
             logger.info(f"Waiting for task {task.id} to complete...")
             await self._wait_for_task_completion(task, browser, tab_index, start_time)
 
@@ -424,7 +414,7 @@ class ParallelOrchestrator:
                     retries=task.retry_count,
                 )
 
-            # Step 7: Extract branch name
+            # Step 6: Extract branch name
             branch_name = f"claude/{task.id.lower()}"
             try:
                 page_text = await browser.get_text("body")
@@ -440,7 +430,7 @@ class ParallelOrchestrator:
             except Exception as e:
                 logger.debug(f"Could not extract branch name: {e}")
 
-            # Step 8: Record session
+            # Step 7: Record session
             final_url = await browser.get_current_url()
             self.session_manager.add_session(
                 session_id=session_id or f"session_{task.id}_{int(datetime.now().timestamp())}",
