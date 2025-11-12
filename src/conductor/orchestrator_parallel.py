@@ -57,9 +57,9 @@ class ParallelOrchestrator:
         self.completed_tasks: List[Task] = []
         self.failed_tasks: List[Task] = []
 
-        # MCP clients - one per parallel slot
-        self.mcp_clients: List[MCPClient] = []
-        self.browsers: List[BrowserController] = []
+        # Single MCP client and browser (not multiple!)
+        self.mcp_client: Optional[MCPClient] = None
+        self.browser: Optional[BrowserController] = None
 
     async def run(self) -> None:
         """Run parallel orchestration."""
@@ -72,19 +72,18 @@ class ParallelOrchestrator:
 
             logger.info(f"Parallel execution enabled: {self.max_parallel} max concurrent tasks")
 
-            # Step 1: Initialize MCP connections pool (skip if already initialized)
-            if not self.mcp_clients:
-                await self._initialize_mcp_pool()
+            # Step 1: Initialize MCP connection (skip if already initialized)
+            if not self.mcp_client:
+                await self._initialize_mcp()
 
             # Step 2: Authenticate (skip if already authenticated by pre-init)
-            # Check if first browser is authenticated
-            if self.browsers:
+            if not self.browser:
+                await self._authenticate()
+            else:
                 if self.app:
                     self.app.notify(
                         "Already authenticated!", title="Auth", severity="information"
                     )
-            else:
-                await self._authenticate()
 
             # Step 3: Execute tasks in parallel
             await self._execute_tasks_parallel()
@@ -105,45 +104,25 @@ class ParallelOrchestrator:
         finally:
             await self._cleanup()
 
-    async def _initialize_mcp_pool(self) -> None:
-        """Initialize pool of MCP clients and browsers."""
+    async def _initialize_mcp(self) -> None:
+        """Initialize single MCP connection and browser."""
         if self.app:
-            self.app.notify(
-                f"Initializing {self.max_parallel} browser sessions...", title="MCP"
-            )
+            self.app.notify("Initializing MCP connection...", title="MCP")
 
-        for i in range(self.max_parallel):
-            try:
-                client = MCPClient(
-                    server_url=self.config.mcp.server_url,
-                    timeout=self.config.mcp.timeout,
-                    max_retries=self.config.mcp.max_retries,
-                )
+        self.mcp_client = MCPClient(
+            server_url=self.config.mcp.server_url,
+            timeout=self.config.mcp.timeout,
+            max_retries=self.config.mcp.max_retries,
+        )
 
-                await client.connect()
-                browser = BrowserController(client)
-
-                self.mcp_clients.append(client)
-                self.browsers.append(browser)
-
-                logger.info(f"Initialized MCP client {i + 1}/{self.max_parallel}")
-
-            except Exception as e:
-                logger.error(f"Failed to initialize MCP client {i + 1}: {e}")
-                # Continue with available clients
-
-        if not self.mcp_clients:
-            raise RuntimeError("Failed to initialize any MCP clients")
+        await self.mcp_client.connect()
+        self.browser = BrowserController(self.mcp_client)
 
         if self.app:
-            self.app.notify(
-                f"Initialized {len(self.mcp_clients)} browser sessions",
-                title="MCP",
-                severity="information",
-            )
+            self.app.notify("MCP connected successfully", title="MCP", severity="information")
 
     async def _authenticate(self) -> None:
-        """Run authentication flow using first browser."""
+        """Run authentication flow."""
         if self.app:
             self.app.notify(
                 "Browser opening - log in to Claude Code, then press Enter in terminal",
@@ -151,9 +130,8 @@ class ParallelOrchestrator:
                 timeout=10,
             )
 
-        # Use first browser for authentication
         auth_flow = AuthenticationFlow(
-            browser=self.browsers[0],
+            browser=self.browser,
             timeout=self.config.auth.timeout,
             check_interval=self.config.auth.check_interval,
         )
@@ -235,15 +213,12 @@ class ParallelOrchestrator:
     async def _execute_task_with_semaphore(self, task: Task) -> None:
         """
         Execute a single task with semaphore control.
+        Uses the single browser with separate tabs for parallel execution.
 
         Args:
             task: Task to execute
         """
         async with self.semaphore:
-            # Get an available browser (round-robin)
-            browser_index = len(self.running_tasks) % len(self.browsers)
-            browser = self.browsers[browser_index]
-
             # Track running task
             self.running_tasks[task.id] = task
 
@@ -252,7 +227,8 @@ class ParallelOrchestrator:
                 self.app.update_task_queue(current_task_id=task.id)
 
             try:
-                await self._execute_task_with_retry(task, browser)
+                # Use the single browser - tasks will create their own tabs
+                await self._execute_task_with_retry(task, self.browser)
                 self.completed_tasks.append(task)
 
                 if self.app:
@@ -628,21 +604,18 @@ class ParallelOrchestrator:
             self.app.notify(summary, title="🎭 Conductor Complete", timeout=0)
 
     async def _cleanup(self) -> None:
-        """Clean up all resources."""
+        """Clean up resources."""
         logger.info("Cleaning up parallel orchestrator resources")
 
-        # Close all browsers
-        for browser in self.browsers:
+        if self.browser:
             try:
-                await browser.close()
+                await self.browser.close()
             except Exception as e:
                 logger.warning(f"Error closing browser: {e}")
 
-        # Disconnect all MCP clients
-        for client in self.mcp_clients:
+        if self.mcp_client and self.mcp_client.is_connected:
             try:
-                if client.is_connected:
-                    await client.disconnect()
+                await self.mcp_client.disconnect()
             except Exception as e:
                 logger.warning(f"Error disconnecting MCP client: {e}")
 
@@ -653,6 +626,7 @@ class ParallelOrchestrator:
 async def run_with_tui_parallel(config: Config, task_list: TaskList) -> None:
     """
     Run parallel orchestrator with TUI.
+    Uses ONE browser with multiple tabs for parallel execution.
 
     Args:
         config: Configuration
@@ -662,42 +636,28 @@ async def run_with_tui_parallel(config: Config, task_list: TaskList) -> None:
 
     # STEP 1: Do browser authentication BEFORE creating TUI
     # This prevents the TUI from getting stuck waiting for auth callbacks
-    logger.info("Initializing MCP pool and authenticating BEFORE starting TUI...")
+    logger.info("Initializing MCP and authenticating BEFORE starting TUI...")
 
-    # Initialize first MCP client for authentication
-    print(f"\n🔧 Initializing {config.execution.max_parallel_tasks} browser sessions...")
+    # Initialize single MCP client for all parallel tasks
+    print(f"\n🔧 Initializing browser (will run {config.execution.max_parallel_tasks} tasks in parallel using tabs)...")
 
-    mcp_clients = []
-    browsers = []
+    mcp_client = MCPClient(
+        server_url=config.mcp.server_url,
+        timeout=config.mcp.timeout,
+        max_retries=config.mcp.max_retries,
+    )
 
-    for i in range(config.execution.max_parallel_tasks):
-        try:
-            client = MCPClient(
-                server_url=config.mcp.server_url,
-                timeout=config.mcp.timeout,
-                max_retries=config.mcp.max_retries,
-            )
-            await client.connect()
-            browser = BrowserController(client)
+    await mcp_client.connect()
+    browser = BrowserController(mcp_client)
 
-            mcp_clients.append(client)
-            browsers.append(browser)
-            logger.info(f"Initialized MCP client {i + 1}/{config.execution.max_parallel_tasks}")
-        except Exception as e:
-            logger.error(f"Failed to initialize MCP client {i + 1}: {e}")
-            # Continue with available clients
+    print("✅ Browser initialized\n")
 
-    if not mcp_clients:
-        raise RuntimeError("Failed to initialize any MCP clients")
-
-    print(f"✅ Initialized {len(mcp_clients)} browser sessions\n")
-
-    # Run authentication flow using first browser
+    # Run authentication flow
     print("🔐 Opening browser for authentication...")
     print("Please log in to Claude Code, then press Enter in this terminal.\n")
 
     auth_flow = AuthenticationFlow(
-        browser=browsers[0],
+        browser=browser,
         timeout=config.auth.timeout,
         check_interval=config.auth.check_interval,
     )
@@ -709,12 +669,8 @@ async def run_with_tui_parallel(config: Config, task_list: TaskList) -> None:
 
     if status != AuthStatus.AUTHENTICATED:
         print(f"\n❌ Authentication failed: {status}")
-        # Cleanup
-        for browser in browsers:
-            await browser.close()
-        for client in mcp_clients:
-            if client.is_connected:
-                await client.disconnect()
+        await browser.close()
+        await mcp_client.disconnect()
         raise RuntimeError(f"Authentication failed: {status}")
 
     print("✅ Authentication successful!\n")
@@ -722,10 +678,10 @@ async def run_with_tui_parallel(config: Config, task_list: TaskList) -> None:
     # STEP 2: Now that we're authenticated, create and run TUI
     app = ConductorTUI(task_list=task_list)
 
-    # Create parallel orchestrator with pre-authenticated browsers
+    # Create parallel orchestrator with pre-authenticated browser
     orchestrator = ParallelOrchestrator(config, task_list, app)
-    orchestrator.mcp_clients = mcp_clients
-    orchestrator.browsers = browsers
+    orchestrator.mcp_client = mcp_client
+    orchestrator.browser = browser
 
     # Run orchestrator in background
     async def run_orchestrator():
