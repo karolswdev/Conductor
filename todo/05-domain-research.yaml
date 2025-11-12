@@ -1,0 +1,660 @@
+# EverDriven Domain Research - Special Needs Transportation Deep Dive
+# Priority: HIGH - Domain expertise drives architectural decisions
+# Timeline: Week 1-6 (Continuous learning throughout)
+
+metadata:
+  author: "karol"
+  created: "2025-11-12"
+  version: "1.0.0"
+  description: "Deep domain research into special needs student transportation"
+  tags: ["domain", "transportation", "education", "research"]
+
+config:
+  default_priority: "high"
+  default_auto_pr_timeout: 7200  # 2 hours for research
+  default_retry_policy:
+    max_attempts: 2
+    backoff_factor: 2.0
+
+tasks:
+  # === BUSINESS DOMAIN UNDERSTANDING ===
+
+  - id: "DOMAIN-001"
+    name: "Research Special Needs Transportation Requirements"
+    prompt: |
+      Conduct comprehensive research on special needs student transportation.
+
+      Research areas:
+      1. Student Categories and Needs
+         - IEP (Individualized Education Program) requirements
+         - Physical disabilities and equipment (wheelchairs, walkers)
+         - Cognitive and developmental disabilities
+         - Behavioral considerations
+         - Medical needs during transport
+         - Sensory sensitivities
+
+      2. Regulatory Landscape
+         - IDEA (Individuals with Disabilities Education Act)
+         - ADA compliance requirements
+         - FERPA privacy regulations
+         - State-specific transportation laws
+         - McKinney-Vento Act (homeless students)
+         - Safety standards and certifications
+
+      3. Operational Complexities
+         - Door-to-door vs curb-to-curb service
+         - Aide/monitor requirements
+         - Equipment specifications (lifts, restraints)
+         - Route optimization constraints
+         - Time window requirements
+         - Chain of custody protocols
+
+      4. Stakeholder Needs
+         - Parents: Safety, communication, predictability
+         - Students: Comfort, routine, dignity
+         - Drivers: Clear instructions, support, safety
+         - Schools: Compliance, efficiency, accountability
+         - Districts: Cost management, liability, reporting
+
+      5. Industry Best Practices
+         - Communication protocols
+         - Emergency procedures
+         - Driver training requirements
+         - Technology adoption patterns
+         - Quality metrics and KPIs
+
+      Create comprehensive report at: everdriven-research/domain/special-needs-transport/
+      Include case studies and regulatory references.
+    expected_deliverable: "Comprehensive special needs transportation domain report"
+    priority: "high"
+    timeout: 10800
+
+  - id: "DOMAIN-002"
+    name: "Map Student Journey and Pain Points"
+    prompt: |
+      Create detailed journey maps for all user personas in the system.
+
+      Journey maps for:
+      1. Special Needs Student Journey
+         - Morning preparation and pickup
+         - Ride experience and safety
+         - School arrival and handoff
+         - Afternoon return process
+         - Communication touchpoints
+         - Emergency scenarios
+
+      2. Parent/Guardian Journey
+         - Initial registration and IEP setup
+         - Daily notifications and tracking
+         - Schedule changes and exceptions
+         - Communication with drivers/school
+         - Incident handling
+         - Feedback and concerns
+
+      3. Driver Journey
+         - Route assignment and preparation
+         - Pre-trip inspection
+         - Student pickup procedures
+         - Navigation and real-time updates
+         - Incident reporting
+         - End-of-day procedures
+
+      4. School Administrator Journey
+         - Student roster management
+         - Route planning and optimization
+         - Real-time monitoring
+         - Incident response
+         - Reporting and compliance
+         - Parent communication
+
+      5. District Transportation Director Journey
+         - Fleet management
+         - Budget and resource allocation
+         - Performance monitoring
+         - Vendor management
+         - Compliance reporting
+         - Strategic planning
+
+      Create journey maps at: everdriven-research/domain/journey-maps/
+      Include pain points, opportunities, and emotion mapping.
+    expected_deliverable: "Detailed journey maps for all personas with pain points"
+    priority: "high"
+    dependencies: ["DOMAIN-001"]
+
+  - id: "DOMAIN-003"
+    name: "Analyze Peak Load Patterns"
+    prompt: |
+      Analyze system load patterns specific to school transportation.
+
+      Analysis includes:
+      1. Daily Load Patterns
+         - 6:00-7:00 AM: Driver check-in and route prep
+         - 7:00-9:00 AM: Morning pickup peak (critical)
+         - 9:00-2:00 PM: Field trips and mid-day routes
+         - 2:00-4:00 PM: Afternoon dropoff peak (critical)
+         - 4:00-6:00 PM: After-school and late buses
+
+      2. Weekly Patterns
+         - Monday: Highest absence rates
+         - Wednesday: Peak field trip day
+         - Friday: Early release schedules
+         - Weekend: Minimal activity
+
+      3. Seasonal Patterns
+         - School year start: Registration surge
+         - Winter: Weather delays and cancellations
+         - Spring: Testing schedule disruptions
+         - Summer: Reduced routes, camp transportation
+
+      4. Load Characteristics
+         - GPS update frequency during peaks
+         - Parent app usage patterns
+         - Notification bursts (delays, arrivals)
+         - Database query patterns
+         - API call distribution
+
+      5. Scaling Requirements
+         - Current peak: 50,000 concurrent GPS updates
+         - Growth projection: 2-3x in 2 years
+         - Latency requirements: <1 second GPS update
+         - Reliability: 99.99% during school hours
+
+      Create analysis at: everdriven-research/domain/load-patterns/
+      Include capacity planning recommendations.
+    expected_deliverable: "Peak load pattern analysis with scaling recommendations"
+    priority: "high"
+    dependencies: ["DOMAIN-002"]
+
+  # === COMPETITIVE AND MARKET ANALYSIS ===
+
+  - id: "DOMAIN-004"
+    name: "Research Competitor Solutions"
+    prompt: |
+      Analyze competitive landscape in student transportation technology.
+
+      Research competitors:
+      1. Direct Competitors
+         - Tyler Technologies (Versatrans)
+         - Transfinder
+         - BusPlanner
+         - SafeStop
+         - Zum (rideshare model)
+
+      2. Feature Comparison
+         - Real-time tracking capabilities
+         - Parent communication features
+         - Route optimization algorithms
+         - Special needs support
+         - Integration capabilities
+         - Pricing models
+
+      3. Technology Stack Analysis
+         - Architecture patterns used
+         - Cloud vs on-premise
+         - Mobile app approaches
+         - Real-time technologies
+         - AI/ML adoption
+
+      4. Market Positioning
+         - EverDriven differentiators
+         - Gaps in current offering
+         - Opportunities for innovation
+         - Partnership opportunities
+         - Expansion possibilities
+
+      5. Customer Feedback Analysis
+         - Reviews and ratings
+         - Common complaints
+         - Switching triggers
+         - Feature requests
+         - Success stories
+
+      Create analysis at: everdriven-research/domain/competitive-analysis/
+      Include SWOT analysis and positioning recommendations.
+    expected_deliverable: "Competitive analysis with positioning strategy"
+    priority: "medium"
+    timeout: 7200
+
+  - id: "DOMAIN-005"
+    name: "Design Future Innovation Opportunities"
+    prompt: |
+      Identify and design future innovation opportunities in the domain.
+
+      Innovation areas:
+      1. AI-Powered Optimization
+         - Dynamic route optimization based on traffic
+         - Predictive maintenance for vehicles
+         - Driver performance and safety scoring
+         - Automated scheduling optimization
+         - Anomaly detection for safety
+
+      2. Enhanced Safety Features
+         - Computer vision for student counting
+         - Seatbelt detection
+         - Bullying/incident detection
+         - Driver alertness monitoring
+         - Geofencing and automated alerts
+
+      3. Parent Experience
+         - Predictive ETAs with ML
+         - Two-way communication with driver
+         - Virtual bus stop (pickup anywhere)
+         - Carpooling coordination
+         - Absence prediction
+
+      4. Operational Excellence
+         - Fuel efficiency optimization
+         - Electric vehicle route planning
+         - Dynamic driver assignment
+         - Automated compliance reporting
+         - Predictive staffing models
+
+      5. Platform Expansion
+         - After-school activity transportation
+         - Summer camp integration
+         - Medical appointment transport
+         - Special events coordination
+         - Multi-district coordination
+
+      Create innovation roadmap at: everdriven-research/domain/innovation/
+      Include POC designs and implementation timelines.
+    expected_deliverable: "Innovation roadmap with POC designs"
+    priority: "medium"
+    dependencies: ["DOMAIN-004"]
+
+  # === OPERATIONAL WORKFLOWS ===
+
+  - id: "DOMAIN-006"
+    name: "Document Critical Operational Workflows"
+    prompt: |
+      Document all critical operational workflows in the system.
+
+      Workflows include:
+      1. Morning Operations
+         - Driver check-in and vehicle inspection
+         - Route assignment and changes
+         - First pickup procedures
+         - No-show handling
+         - Late student protocols
+         - School arrival procedures
+
+      2. Incident Management
+         - Accident response workflow
+         - Medical emergency procedures
+         - Behavioral incident handling
+         - Vehicle breakdown protocol
+         - Weather delay decisions
+         - Parent notification trees
+
+      3. Route Management
+         - New student onboarding
+         - Route optimization process
+         - Driver substitution workflow
+         - Field trip scheduling
+         - Route change approvals
+         - Summer transition planning
+
+      4. Communication Flows
+         - Delay notification cascade
+         - Two-way parent communication
+         - Driver-to-dispatch protocols
+         - School-to-transportation coordination
+         - Emergency broadcast system
+
+      5. Compliance Workflows
+         - Driver certification tracking
+         - Vehicle inspection schedules
+         - IEP compliance verification
+         - Incident reporting requirements
+         - Data retention policies
+         - Audit preparation
+
+      Create workflow documentation at: everdriven-research/domain/workflows/
+      Include BPMN diagrams and automation opportunities.
+    expected_deliverable: "Critical workflow documentation with process diagrams"
+    priority: "high"
+    dependencies: ["DOMAIN-003"]
+
+  - id: "DOMAIN-007"
+    name: "Create Data Model Documentation"
+    prompt: |
+      Document the domain data model and entity relationships.
+
+      Data model includes:
+      1. Core Entities
+         - Students (IEP data, medical needs, contacts)
+         - Routes (stops, timing, distance)
+         - Vehicles (capacity, equipment, maintenance)
+         - Drivers (certifications, availability, performance)
+         - Schools (calendars, bell schedules, zones)
+         - Districts (policies, contracts, budgets)
+
+      2. Relationships
+         - Student-Route assignments (many-to-many)
+         - Driver-Vehicle pairings
+         - Route-Stop sequences
+         - Student-Guardian relationships
+         - School-District hierarchies
+         - Historical tracking
+
+      3. Temporal Data
+         - GPS tracking streams
+         - Route execution history
+         - Attendance records
+         - Schedule exceptions
+         - Incident timelines
+         - Performance metrics
+
+      4. Compliance Data
+         - IEP requirements and accommodations
+         - Driver certifications and training
+         - Vehicle inspection records
+         - Incident reports and resolutions
+         - Communication logs
+         - Audit trails
+
+      5. Analytics Data
+         - Route efficiency metrics
+         - On-time performance
+         - Safety scores
+         - Cost per mile/student
+         - Driver utilization
+         - Predictive models
+
+      Create data model at: everdriven-research/domain/data-model/
+      Include ER diagrams and data dictionary.
+    expected_deliverable: "Domain data model with relationships and dictionary"
+    priority: "medium"
+    dependencies: ["DOMAIN-006"]
+
+  # === INTEGRATION LANDSCAPE ===
+
+  - id: "DOMAIN-008"
+    name: "Map External Integration Points"
+    prompt: |
+      Map all external systems and integration requirements.
+
+      Integration mapping:
+      1. School Information Systems
+         - Student Information Systems (SIS)
+         - IEP management systems
+         - Attendance tracking
+         - Grade/schedule data
+         - Parent portal integration
+
+      2. Transportation Systems
+         - GPS/Telematics providers
+         - Fuel card systems
+         - Maintenance management
+         - Time clock systems
+         - Driver certification databases
+
+      3. Communication Platforms
+         - SMS gateways (Twilio, etc.)
+         - Email services
+         - Push notification services
+         - Voice calling systems
+         - Translation services
+
+      4. Mapping and Navigation
+         - Google Maps/Mapbox integration
+         - Traffic data providers
+         - Weather services
+         - Geocoding services
+         - Route optimization engines
+
+      5. Business Systems
+         - ERP/Financial systems
+         - HR/Payroll systems
+         - Billing/invoicing
+         - Reporting/analytics platforms
+         - Document management
+
+      Create integration map at: everdriven-research/domain/integrations/
+      Include API specifications and data flow diagrams.
+    expected_deliverable: "Integration landscape map with specifications"
+    priority: "medium"
+    dependencies: ["DOMAIN-007"]
+
+  # === PERFORMANCE AND RELIABILITY ===
+
+  - id: "DOMAIN-009"
+    name: "Define Domain-Specific SLAs"
+    prompt: |
+      Define service level agreements specific to transportation domain.
+
+      SLA definitions:
+      1. Critical Services (School Hours 6 AM - 6 PM)
+         - GPS tracking: 99.99% uptime, <1 sec latency
+         - Parent app: 99.95% uptime, <2 sec response
+         - Driver app: 99.95% uptime, <2 sec response
+         - Dispatch system: 99.99% uptime
+         - Notification delivery: <30 seconds
+
+      2. Performance Targets
+         - Route calculation: <5 seconds
+         - Batch GPS updates: 10,000/second
+         - Concurrent users: 100,000+
+         - API response time: p95 < 500ms
+         - Database queries: p95 < 100ms
+
+      3. Data Accuracy
+         - GPS accuracy: within 10 meters
+         - ETA accuracy: within 2 minutes
+         - Student counts: 100% accurate
+         - Route compliance: 100% tracked
+         - Notification delivery: 99.9% success
+
+      4. Recovery Targets
+         - RTO (Recovery Time): <15 minutes
+         - RPO (Recovery Point): <5 minutes
+         - Degraded mode operation
+         - Offline capability for drivers
+         - Data synchronization recovery
+
+      5. Compliance Metrics
+         - FERPA compliance: 100%
+         - Data retention: 7 years
+         - Audit trail: Complete
+         - Incident reporting: <1 hour
+         - Parent opt-out: <24 hours
+
+      Create SLA document at: everdriven-research/domain/slas/
+      Include monitoring strategy and escalation procedures.
+    expected_deliverable: "Domain-specific SLA definitions with monitoring plan"
+    priority: "high"
+    dependencies: ["DOMAIN-008"]
+
+  # === SAFETY AND COMPLIANCE ===
+
+  - id: "DOMAIN-010"
+    name: "Create Safety Architecture Framework"
+    prompt: |
+      Design comprehensive safety architecture for student transportation.
+
+      Framework includes:
+      1. Student Safety Features
+         - Boarding/departure verification
+         - Unauthorized person detection
+         - Left-behind student alerts
+         - Medical emergency protocols
+         - Seat assignment tracking
+         - Special equipment monitoring
+
+      2. Driver Safety Support
+         - Route deviation alerts
+         - Speed monitoring
+         - Hard braking detection
+         - Distraction prevention
+         - Fatigue detection
+         - Training compliance
+
+      3. Vehicle Safety Monitoring
+         - Pre-trip inspection digital forms
+         - Maintenance schedule tracking
+         - Equipment failure alerts
+         - Camera system integration
+         - Emergency button systems
+         - Environmental monitoring
+
+      4. Communication Safety
+         - Parent verification system
+         - Authorized pickup validation
+         - Emergency broadcast capability
+         - Multi-language support
+         - Chain of custody tracking
+         - Incident documentation
+
+      5. Compliance Tracking
+         - Federal regulation compliance
+         - State-specific requirements
+         - District policy enforcement
+         - Insurance requirements
+         - Background check tracking
+         - Training certification
+
+      Create framework at: everdriven-research/domain/safety-architecture/
+      Include implementation priorities and technology requirements.
+    expected_deliverable: "Safety architecture framework with compliance tracking"
+    priority: "high"
+    dependencies: ["DOMAIN-009"]
+
+  # === COST AND EFFICIENCY ===
+
+  - id: "DOMAIN-011"
+    name: "Analyze Cost Optimization Opportunities"
+    prompt: |
+      Analyze domain-specific cost optimization opportunities.
+
+      Cost analysis areas:
+      1. Route Optimization Impact
+         - Current route efficiency: baseline
+         - Optimization potential: 15-20% reduction
+         - Fuel cost savings projection
+         - Driver hour reduction
+         - Vehicle utilization improvement
+
+      2. Technology Cost Drivers
+         - GPS data costs (per vehicle)
+         - SMS/notification costs
+         - Cloud infrastructure scaling
+         - Integration maintenance
+         - Support costs by feature
+
+      3. Operational Efficiency
+         - Manual process automation savings
+         - Reduced phone calls via app
+         - Paperwork elimination
+         - Compliance automation
+         - Incident reduction impact
+
+      4. Scaling Economics
+         - Cost per student served
+         - District size breakpoints
+         - Multi-district efficiency
+         - Shared service opportunities
+         - Platform effect benefits
+
+      5. ROI Calculations
+         - Technology investment payback
+         - Safety incident prevention value
+         - Compliance violation avoidance
+         - Parent satisfaction impact
+         - Driver retention improvement
+
+      Create analysis at: everdriven-research/domain/cost-optimization/
+      Include ROI calculator and business case templates.
+    expected_deliverable: "Cost optimization analysis with ROI calculations"
+    priority: "medium"
+    dependencies: ["DOMAIN-010"]
+
+  # === FUTURE STATE VISION ===
+
+  - id: "DOMAIN-012"
+    name: "Design Next-Generation Transportation Platform"
+    prompt: |
+      Design vision for next-generation student transportation platform.
+
+      Vision includes:
+      1. Autonomous Integration Ready
+         - Self-driving bus integration points
+         - Hybrid fleet management
+         - Safety override systems
+         - Regulatory compliance framework
+         - Transition planning tools
+
+      2. AI-Driven Operations
+         - Predictive route optimization
+         - Dynamic scheduling AI
+         - Incident prevention ML
+         - Natural language dispatch
+         - Computer vision safety
+
+      3. Parent Empowerment
+         - Self-service scheduling
+         - Real-time video access
+         - Direct driver messaging
+         - Carpooling coordination
+         - Feedback and ratings
+
+      4. Unified Transportation
+         - Regular ed integration
+         - After-school coordination
+         - Field trip management
+         - Athletic transportation
+         - Community partnership
+
+      5. Data-Driven Insights
+         - Predictive analytics dashboard
+         - Cost optimization AI
+         - Safety score predictions
+         - Performance forecasting
+         - Compliance automation
+
+      Create vision document at: everdriven-research/domain/future-vision/
+      Include 3-year roadmap and technology requirements.
+    expected_deliverable: "Next-generation platform vision with roadmap"
+    priority: "low"
+    dependencies: ["DOMAIN-011"]
+
+groups:
+  - name: "Domain Foundation"
+    tasks: ["DOMAIN-001", "DOMAIN-002", "DOMAIN-003"]
+    description: "Core domain understanding"
+
+  - name: "Market Position"
+    tasks: ["DOMAIN-004", "DOMAIN-005"]
+    description: "Competitive analysis and innovation"
+
+  - name: "Operations"
+    tasks: ["DOMAIN-006", "DOMAIN-007", "DOMAIN-008"]
+    description: "Workflow and integration mapping"
+
+  - name: "Excellence"
+    tasks: ["DOMAIN-009", "DOMAIN-010", "DOMAIN-011"]
+    description: "Performance, safety, and efficiency"
+
+execution_order:
+  - "DOMAIN-001"
+  - "DOMAIN-002"
+  - parallel:
+    - "DOMAIN-003"
+    - "DOMAIN-004"
+  - parallel:
+    - "DOMAIN-005"
+    - "DOMAIN-006"
+  - "DOMAIN-007"
+  - "DOMAIN-008"
+  - parallel:
+    - "DOMAIN-009"
+    - "DOMAIN-010"
+  - "DOMAIN-011"
+  - "DOMAIN-012"
+
+notifications:
+  on_complete:
+    - type: "terminal"
+      message: "🚌 Domain Research Complete! Expert-level understanding achieved."
+  on_failure:
+    - type: "terminal"
+      message: "⚠️ Domain research task failed - critical for architecture decisions"

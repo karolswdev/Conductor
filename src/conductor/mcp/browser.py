@@ -1,13 +1,22 @@
 """
 Browser controller using MCP Playwright integration.
+
+Updated to properly use accessibility snapshots instead of CSS selectors.
 """
 
 import asyncio
 import logging
-from typing import Optional, Dict, Any
+import re
+import yaml
+from typing import Optional, Dict, Any, List, Tuple
 from pathlib import Path
 
 from .client import MCPClient, MCPError
+from .browser_snapshot_parser import (
+    find_element_in_snapshot,
+    is_create_pr_button_enabled as check_create_pr_button_enabled,
+    extract_branch_name as extract_branch_name_from_text,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -18,7 +27,7 @@ class BrowserController:
     High-level browser controller using MCP Playwright server.
 
     Provides convenient methods for common browser operations needed
-    for Claude Code automation.
+    for Claude Code automation using accessibility snapshots.
     """
 
     def __init__(self, mcp_client: MCPClient):
@@ -85,40 +94,85 @@ class BrowserController:
             logger.error(f"Navigation failed: {e}")
             raise MCPError(f"Failed to navigate to {url}: {e}") from e
 
-    async def click(self, selector: str, timeout: float = 30.0) -> None:
+    async def get_snapshot(self) -> Dict[str, Any]:
         """
-        Click an element.
+        Get accessibility snapshot of the current page.
+
+        Returns:
+            Snapshot data
+
+        Raises:
+            MCPError: If snapshot fails
+        """
+        try:
+            result = await self.client.call_tool("browser_snapshot", {})
+            return result
+        except Exception as e:
+            logger.error(f"Failed to get snapshot: {e}")
+            raise MCPError(f"Failed to get snapshot: {e}") from e
+
+    def _find_element_in_snapshot(self, snapshot: Any, description: str) -> Optional[str]:
+        """
+        Parse accessibility snapshot to find element ref.
 
         Args:
-            selector: CSS selector for the element
+            snapshot: The accessibility snapshot
+            description: Human-readable description of the element
+
+        Returns:
+            Element ref (e.g., "e226") or None if not found
+        """
+        # Delegate to the imported parser function
+        return find_element_in_snapshot(snapshot, description)
+
+    async def click(self, element_description: str, timeout: float = 30.0) -> None:
+        """
+        Click an element using accessibility snapshot.
+
+        Args:
+            element_description: Human-readable description of the element
             timeout: Maximum time to wait for element
 
         Raises:
             MCPError: If click fails
         """
         try:
-            logger.debug(f"Clicking element: {selector}")
+            logger.debug(f"Clicking element: {element_description}")
 
-            # Note: browser_click requires 'element' and 'ref' parameters
-            # This simplified version may need adjustment based on actual usage
+            # Get snapshot first
+            snapshot = await self.get_snapshot()
+
+            # Find element ref in snapshot
+            element_ref = self._find_element_in_snapshot(snapshot, element_description)
+
+            if not element_ref:
+                logger.warning(f"Element not found in snapshot: {element_description}")
+                # Try alternative approach - might be a dynamic element
+                raise MCPError(f"Element not found: {element_description}")
+
+            logger.debug(f"Found element ref: {element_ref} for {element_description}")
+
+            # Click with proper parameters
             await self.client.call_tool(
                 "browser_click",
                 {
-                    "element": selector,
-                    "ref": selector,
+                    "element": element_description,  # Human-readable
+                    "ref": element_ref,              # Actual ref from snapshot
                 },
             )
 
-        except Exception as e:
-            logger.error(f"Click failed: {e}")
-            raise MCPError(f"Failed to click {selector}: {e}") from e
+            logger.info(f"Successfully clicked: {element_description}")
 
-    async def fill(self, selector: str, text: str, timeout: float = 30.0) -> None:
+        except Exception as e:
+            logger.error(f"Click failed for '{element_description}': {e}")
+            raise MCPError(f"Failed to click {element_description}: {e}") from e
+
+    async def fill(self, element_description: str, text: str, timeout: float = 30.0) -> None:
         """
-        Fill a text input.
+        Fill a text input using accessibility snapshot.
 
         Args:
-            selector: CSS selector for the input
+            element_description: Human-readable description of the element
             text: Text to fill
             timeout: Maximum time to wait for element
 
@@ -126,22 +180,36 @@ class BrowserController:
             MCPError: If fill fails
         """
         try:
-            logger.debug(f"Filling element: {selector}")
+            logger.debug(f"Filling element: {element_description}")
 
-            # Note: browser_type requires 'element', 'ref', and 'text' parameters
+            # Get snapshot first
+            snapshot = await self.get_snapshot()
+
+            # Find element ref in snapshot
+            element_ref = self._find_element_in_snapshot(snapshot, element_description)
+
+            if not element_ref:
+                logger.warning(f"Element not found in snapshot: {element_description}")
+                raise MCPError(f"Element not found: {element_description}")
+
+            logger.debug(f"Found element ref: {element_ref} for {element_description}")
+
+            # Type with proper parameters
             await self.client.call_tool(
                 "browser_type",
                 {
-                    "element": selector,
-                    "ref": selector,
+                    "element": element_description,  # Human-readable
+                    "ref": element_ref,              # Actual ref from snapshot
                     "text": text,
-                    "submit": False,
+                    "submit": False,                 # Don't auto-submit
                 },
             )
 
+            logger.info(f"Successfully filled: {element_description}")
+
         except Exception as e:
-            logger.error(f"Fill failed: {e}")
-            raise MCPError(f"Failed to fill {selector}: {e}") from e
+            logger.error(f"Fill failed for '{element_description}': {e}")
+            raise MCPError(f"Failed to fill {element_description}: {e}") from e
 
     async def screenshot(self, output_path: Optional[Path] = None) -> bytes:
         """
@@ -179,25 +247,22 @@ class BrowserController:
             logger.error(f"Screenshot failed: {e}")
             raise MCPError(f"Failed to take screenshot: {e}") from e
 
-    async def wait_for_selector(
+    async def wait_for_element(
         self,
-        selector: str,
+        element_description: str,
         timeout: float = 30.0,
-        state: str = "visible",
+        check_interval: float = 2.0
     ) -> bool:
         """
-        Wait for an element to appear by checking snapshots.
-
-        Note: Playwright MCP doesn't have a direct wait_for_selector tool.
-        This implementation uses browser_snapshot to check for elements.
+        Wait for an element to appear in accessibility snapshot.
 
         Args:
-            selector: CSS selector for the element (simplified: checks if text appears in snapshot)
+            element_description: Human-readable description of the element
             timeout: Maximum time to wait
-            state: Element state to wait for (visible, attached, etc.) - not fully supported
+            check_interval: How often to check
 
         Returns:
-            True if element found in snapshot, False if timeout
+            True if element found, False if timeout
 
         Raises:
             MCPError: If wait fails
@@ -207,50 +272,38 @@ class BrowserController:
         start_time = time.time()
 
         try:
-            logger.debug(f"Waiting for selector: {selector} (timeout={timeout}s)")
+            logger.debug(f"Waiting for element: {element_description} (timeout={timeout}s)")
 
             while time.time() - start_time < timeout:
                 try:
-                    # Take a snapshot and check if selector text appears
-                    result = await self.client.call_tool("browser_snapshot", {})
+                    # Take a snapshot and check for element
+                    snapshot = await self.get_snapshot()
+                    element_ref = self._find_element_in_snapshot(snapshot, element_description)
 
-                    # Parse the response to see if selector-like text is present
-                    snapshot_text = ""
-                    if "content" in result and isinstance(result["content"], list):
-                        for item in result["content"]:
-                            if hasattr(item, "text"):
-                                snapshot_text += item.text
-                            elif isinstance(item, dict) and "text" in item:
-                                snapshot_text += item["text"]
-
-                    # Simple check: if we're looking for data-testid, check if it appears
-                    # This is a simplified heuristic - not perfect but better than nothing
-                    selector_parts = selector.replace("[", "").replace("]", "").replace("'", "").replace('"', '')
-
-                    if selector_parts in snapshot_text or any(part in snapshot_text for part in selector_parts.split("=")):
-                        logger.debug(f"Found indicator of selector {selector} in snapshot")
+                    if element_ref:
+                        logger.debug(f"Found element: {element_description} with ref: {element_ref}")
                         return True
 
                     # Brief pause before retry
-                    await asyncio.sleep(2.0)
+                    await asyncio.sleep(check_interval)
 
                 except Exception as e:
                     logger.debug(f"Snapshot check failed: {e}")
-                    await asyncio.sleep(2.0)
+                    await asyncio.sleep(check_interval)
 
-            logger.debug(f"Timeout waiting for selector: {selector}")
+            logger.debug(f"Timeout waiting for element: {element_description}")
             return False
 
         except Exception as e:
-            logger.warning(f"Wait for selector failed: {e}")
+            logger.warning(f"Wait for element failed: {e}")
             return False
 
-    async def get_text(self, selector: str) -> str:
+    async def get_text(self, element_description: str = "body") -> str:
         """
-        Get text content of an element.
+        Get text content from the page or a specific element.
 
         Args:
-            selector: CSS selector for the element
+            element_description: Description of element (default: entire page)
 
         Returns:
             Element text content
@@ -259,29 +312,23 @@ class BrowserController:
             MCPError: If operation fails
         """
         try:
-            # browser_snapshot returns page accessibility tree
-            # Getting specific element text requires parsing the snapshot
-            result = await self.client.call_tool(
-                "browser_snapshot",
-                {},
-            )
+            # Get accessibility snapshot
+            snapshot = await self.get_snapshot()
 
-            # Handle MCP response format
-            if "content" in result and isinstance(result["content"], list):
-                for item in result["content"]:
+            # Extract text from snapshot
+            snapshot_text = ""
+            if "content" in snapshot and isinstance(snapshot["content"], list):
+                for item in snapshot["content"]:
                     if hasattr(item, "text"):
-                        return item.text
+                        snapshot_text = item.text
                     elif isinstance(item, dict) and "text" in item:
-                        return item["text"]
-                return ""
-            elif "text" in result:
-                return result["text"]
-            else:
-                return str(result)
+                        snapshot_text = item["text"]
+
+            return snapshot_text
 
         except Exception as e:
             logger.error(f"Get text failed: {e}")
-            raise MCPError(f"Failed to get text from {selector}: {e}") from e
+            raise MCPError(f"Failed to get text: {e}") from e
 
     async def get_current_url(self) -> str:
         """
@@ -301,7 +348,6 @@ class BrowserController:
 
             # Handle MCP response format
             if "content" in result and isinstance(result["content"], list):
-                # MCP returns content as list of TextContent/ImageContent objects
                 for item in result["content"]:
                     if hasattr(item, "text"):
                         return item.text
@@ -371,7 +417,6 @@ class BrowserController:
             if "content" in result and isinstance(result["content"], list):
                 for item in result["content"]:
                     if hasattr(item, "text"):
-                        # Parse the text content
                         return self._parse_tab_list(item.text)
                     elif isinstance(item, dict) and "text" in item:
                         return self._parse_tab_list(item["text"])
@@ -458,6 +503,58 @@ class BrowserController:
                 tabs.append({"index": i, "title": line.strip()})
 
         return tabs
+
+    def extract_branch_name(self, snapshot_text: str) -> Optional[str]:
+        """
+        Extract Claude branch name from snapshot text.
+
+        Args:
+            snapshot_text: Text from accessibility snapshot
+
+        Returns:
+            Branch name if found (e.g., "claude/test-automation-abc123")
+        """
+        # Delegate to the imported parser function
+        return extract_branch_name_from_text(snapshot_text)
+
+    def is_create_pr_button_enabled(self, snapshot_text: str) -> bool:
+        """
+        Check if Create PR button is enabled in snapshot.
+
+        Args:
+            snapshot_text: Text from accessibility snapshot
+
+        Returns:
+            True if Create PR button exists and is not disabled
+        """
+        # Delegate to the imported parser function
+        return check_create_pr_button_enabled(snapshot_text)
+
+    async def dismiss_notification_dialog(self) -> bool:
+        """
+        Dismiss notification dialog if present.
+
+        Returns:
+            True if dialog was dismissed, False if no dialog found
+        """
+        try:
+            # Check for notification dialog
+            snapshot = await self.get_snapshot()
+
+            # Look for "Not Now" button
+            element_ref = self._find_element_in_snapshot(snapshot, "Not Now button")
+
+            if element_ref:
+                logger.info("Found notification dialog, dismissing...")
+                await self.click("Not Now button")
+                await asyncio.sleep(1.0)
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.debug(f"No notification dialog found or failed to dismiss: {e}")
+            return False
 
     async def close(self) -> None:
         """Close the browser."""

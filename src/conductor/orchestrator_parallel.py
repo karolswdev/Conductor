@@ -372,16 +372,24 @@ class ParallelOrchestrator:
                     retries=task.retry_count,
                 )
 
-            # Step 3: Try to create new session
-            try:
-                await browser.click("[data-testid='new-session-button']")
-                await asyncio.sleep(2.0)
-            except Exception as e:
-                logger.warning(f"Could not click new session button: {e}")
+            # Step 3: Select repository if specified
+            if hasattr(task, 'repository') and task.repository:
+                try:
+                    logger.info(f"Selecting repository: {task.repository}")
+                    await browser.click("Select repository button")
+                    await asyncio.sleep(2.0)
 
-            # Step 4: Get session URL
-            current_url = await browser.get_current_url()
-            session_id = self._extract_session_id_from_url(current_url)
+                    parts = task.repository.split('/')
+                    if len(parts) >= 2:
+                        owner = parts[0]
+                        repo_name = parts[1]
+                        await browser.click(f"{repo_name} {owner} repository option")
+                    else:
+                        await browser.click(f"{task.repository} repository option")
+
+                    await asyncio.sleep(1.0)
+                except Exception as e:
+                    logger.warning(f"Could not select repository: {e}")
 
             # Update progress
             if self.app:
@@ -392,14 +400,23 @@ class ParallelOrchestrator:
                     retries=task.retry_count,
                 )
 
-            # Step 5: Submit task prompt
+            # Step 4: Submit task prompt
             logger.info(f"Submitting task prompt for task {task.id}")
             try:
-                await browser.fill("textarea[placeholder*='message']", task.prompt)
+                await browser.fill("Message input textbox", task.prompt)
                 await asyncio.sleep(1.0)
-                await browser.click("button[type='submit']")
+                await browser.click("Submit button")
             except Exception as e:
                 logger.warning(f"Could not submit prompt automatically: {e}")
+                raise
+
+            # Step 5: Wait for session URL to update
+            await asyncio.sleep(3.0)
+            current_url = await browser.get_current_url()
+            session_id = self._extract_session_id_from_url(current_url)
+
+            # Dismiss notification dialog if present
+            await browser.dismiss_notification_dialog()
 
             # Update progress
             if self.app:
@@ -427,9 +444,15 @@ class ParallelOrchestrator:
             branch_name = f"claude/{task.id.lower()}"
             try:
                 page_text = await browser.get_text("body")
-                extracted_branch = self._extract_branch_name_from_page(page_text)
+                # Use browser's extract_branch_name method which looks for the correct pattern
+                extracted_branch = browser.extract_branch_name(page_text)
                 if extracted_branch:
                     branch_name = extracted_branch
+                else:
+                    # Fallback: try the old extraction method
+                    extracted_branch = self._extract_branch_name_from_page(page_text)
+                    if extracted_branch:
+                        branch_name = extracted_branch
             except Exception as e:
                 logger.debug(f"Could not extract branch name: {e}")
 
@@ -512,27 +535,39 @@ class ParallelOrchestrator:
         """
         import time
 
+        # Use task-specific timeout if available
+        if hasattr(task, 'timeout'):
+            timeout = task.timeout
+
         check_start = time.time()
+        logger.info(f"Waiting up to {timeout}s for task {task.id} to complete")
 
         while time.time() - check_start < timeout:
             try:
                 # Switch to the task's tab
                 await browser.switch_tab(tab_index)
 
-                # Check for completion indicators
+                # Get page text to check for completion
                 page_text = await browser.get_text("body")
 
-                completion_indicators = [
-                    "completed",
-                    "finished",
-                    "done",
-                    "push",
-                ]
-
-                page_text_lower = page_text.lower()
-                if any(indicator in page_text_lower for indicator in completion_indicators):
-                    logger.info(f"Task {task.id} appears to be complete")
+                # Primary indicator: Check if "Create PR" button is enabled
+                if browser.is_create_pr_button_enabled(page_text):
+                    logger.info(f"Task {task.id} completed - Create PR button enabled")
                     return
+
+                # Secondary indicators: Look for branch name and completion keywords
+                if browser.extract_branch_name(page_text):
+                    completion_keywords = [
+                        "pushed to branch",
+                        "create pr",
+                        "pull request",
+                        "committed",
+                        "merged"
+                    ]
+                    page_text_lower = page_text.lower()
+                    if any(keyword in page_text_lower for keyword in completion_keywords):
+                        logger.info(f"Task {task.id} appears to be complete (branch created)")
+                        return
 
                 # Update progress based on elapsed time
                 if self.app:
@@ -546,13 +581,18 @@ class ParallelOrchestrator:
                         retries=task.retry_count,
                     )
 
+                # Log progress periodically
+                elapsed_total = int(time.time() - check_start)
+                if elapsed_total % 30 == 0:  # Log every 30 seconds
+                    logger.debug(f"Task {task.id} still running ({elapsed_total}s elapsed)")
+
                 await asyncio.sleep(check_interval)
 
             except Exception as e:
                 logger.debug(f"Error checking task completion: {e}")
                 await asyncio.sleep(check_interval)
 
-        logger.warning(f"Task {task.id} completion check timed out after {timeout}s")
+        logger.warning(f"Task {task.id} timed out after {timeout}s")
         logger.info("Task may still be running - check the browser tab manually")
 
     def _show_completion(self) -> None:

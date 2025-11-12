@@ -193,67 +193,44 @@ class Orchestrator:
             logger.info(f"Navigating to Claude Code for task {task.id}")
             await self.browser.navigate("https://claude.ai/code")
 
-            # Wait a bit for page to load
+            # Wait for page to load
             await asyncio.sleep(3.0)
 
-            # Step 4: Click "New Session" button to create a session
-            # This is a simplified approach - the actual implementation would need
-            # more sophisticated element detection and interaction
-            try:
-                logger.info(f"Attempting to create new session for task {task.id}")
+            # Step 4: Select repository if specified
+            if hasattr(task, 'repository') and task.repository:
+                await self._select_repository(task.repository)
 
-                # Try to find and click the new session button
-                # The actual selector may vary - this is based on common patterns
-                await self.browser.click("[data-testid='new-session-button']")
-                await asyncio.sleep(2.0)
+            # Step 5: Fill and submit the prompt
+            await self._submit_prompt(task.prompt)
 
-            except Exception as e:
-                logger.warning(f"Could not click new session button: {e}")
-                logger.info("Assuming we're already in a new session context")
-
-            # Step 5: Get the current URL to extract session ID
+            # Step 6: Wait for session URL to update
+            await asyncio.sleep(3.0)
             current_url = await self.browser.get_current_url()
             logger.info(f"Task {task.id} session URL: {current_url}")
 
-            # Extract session ID from URL (format: https://claude.ai/code/<session-id>)
+            # Extract session ID from URL (format: https://claude.ai/code/session_<id>)
             session_id = self._extract_session_id_from_url(current_url)
 
-            # Step 6: Type the task prompt into the input
-            logger.info(f"Submitting task prompt for task {task.id}")
-            try:
-                # Find the prompt input (common selectors for text input)
-                await self.browser.fill("textarea[placeholder*='message']", task.prompt)
-                await asyncio.sleep(1.0)
+            # Step 7: Dismiss notification dialog if present
+            await self.browser.dismiss_notification_dialog()
 
-                # Submit the prompt (usually Cmd+Enter or a submit button)
-                # Note: This is a simplified approach - actual submission may vary
-                await self.browser.click("button[type='submit']")
+            # Step 8: Monitor for completion (respect task timeout)
+            timeout = getattr(task, 'timeout', 600)  # Default 10 minutes
+            logger.info(f"Waiting for task {task.id} to complete (timeout: {timeout}s)...")
+            await self._wait_for_task_completion(task, tab_index, timeout=timeout)
 
-            except Exception as e:
-                logger.warning(f"Could not submit prompt automatically: {e}")
-                logger.info("Task prompt may need to be submitted manually")
-
-            # Step 7: Monitor for completion
-            # For now, we wait a reasonable amount of time
-            # Future implementation should poll for completion indicators
-            logger.info(f"Waiting for task {task.id} to complete...")
-            await self._wait_for_task_completion(task, tab_index)
-
-            # Step 8: Extract branch name from the session
-            # This would require parsing the page or using API
-            # For now, construct expected branch name
-            branch_name = f"claude/{task.id}"
-
-            # Try to extract actual branch from page if possible
+            # Step 9: Extract branch name from the session
             try:
                 page_text = await self.browser.get_text("body")
-                extracted_branch = self._extract_branch_name_from_page(page_text)
-                if extracted_branch:
-                    branch_name = extracted_branch
+                branch_name = self.browser.extract_branch_name(page_text)
+                if not branch_name:
+                    # Fallback to constructed name
+                    branch_name = f"claude/{task.id}-{session_id[:8] if session_id else 'unknown'}"
             except Exception as e:
                 logger.debug(f"Could not extract branch name: {e}")
+                branch_name = f"claude/{task.id}"
 
-            # Step 9: Record the session
+            # Step 10: Record the session
             self.session_manager.add_session(
                 session_id=session_id or f"session_{task.id}",
                 task_id=task.id,
@@ -278,6 +255,65 @@ class Orchestrator:
             # Keep the tab open for inspection
             # User can close tabs manually or we can add config option
             pass
+
+    async def _select_repository(self, repository: str) -> None:
+        """
+        Select repository from dropdown.
+
+        Args:
+            repository: Repository path (e.g., "owner/repo")
+        """
+        try:
+            logger.info(f"Selecting repository: {repository}")
+
+            # Click repository selector button
+            await self.browser.click("Select repository button")
+            await asyncio.sleep(2.0)
+
+            # Parse repository path
+            parts = repository.split('/')
+            if len(parts) >= 2:
+                owner = parts[0]
+                repo_name = parts[1]
+            else:
+                # If no slash, assume it's just the repo name
+                repo_name = repository
+                owner = ""
+
+            # Click the repository option in dropdown
+            # Format in dropdown is "reponame owner"
+            if owner:
+                await self.browser.click(f"{repo_name} {owner} repository option")
+            else:
+                await self.browser.click(f"{repo_name} repository option")
+
+            await asyncio.sleep(1.0)
+            logger.info(f"Repository {repository} selected")
+
+        except Exception as e:
+            logger.warning(f"Could not select repository {repository}: {e}")
+            # Continue anyway - might already have a repo selected
+
+    async def _submit_prompt(self, prompt: str) -> None:
+        """
+        Fill and submit the task prompt.
+
+        Args:
+            prompt: The task prompt text
+        """
+        logger.info("Submitting task prompt")
+        try:
+            # Fill the message input
+            await self.browser.fill("Message input textbox", prompt)
+            await asyncio.sleep(1.0)
+
+            # Click submit button (will be enabled after text is entered)
+            await self.browser.click("Submit button")
+            logger.info("Prompt submitted successfully")
+
+        except Exception as e:
+            logger.error(f"Could not submit prompt: {e}")
+            raise
 
     def _extract_session_id_from_url(self, url: str) -> Optional[str]:
         """
@@ -346,27 +382,40 @@ class Orchestrator:
 
         start_time = time.time()
 
+        logger.info(f"Waiting up to {timeout}s for task {task.id} to complete")
+
         while time.time() - start_time < timeout:
             try:
                 # Switch to the task's tab
                 await self.browser.switch_tab(tab_index)
 
-                # Check for completion indicators in the page
+                # Get page snapshot/text to check for completion
                 page_text = await self.browser.get_text("body")
 
-                # Look for completion indicators
-                # These are heuristics - actual indicators may vary
-                completion_indicators = [
-                    "completed",
-                    "finished",
-                    "done",
-                    "push",  # When Claude pushes to git
-                ]
-
-                page_text_lower = page_text.lower()
-                if any(indicator in page_text_lower for indicator in completion_indicators):
-                    logger.info(f"Task {task.id} appears to be complete")
+                # Primary indicator: Check if "Create PR" button is enabled
+                if self.browser.is_create_pr_button_enabled(page_text):
+                    logger.info(f"Task {task.id} completed - Create PR button enabled")
                     return
+
+                # Secondary indicators: Look for branch name pattern
+                if self.browser.extract_branch_name(page_text):
+                    # Also check for other completion signs
+                    completion_keywords = [
+                        "pushed to branch",
+                        "create pr",
+                        "pull request",
+                        "committed",
+                        "merged"
+                    ]
+                    page_text_lower = page_text.lower()
+                    if any(keyword in page_text_lower for keyword in completion_keywords):
+                        logger.info(f"Task {task.id} appears to be complete (branch created)")
+                        return
+
+                # Log progress
+                elapsed = int(time.time() - start_time)
+                if elapsed % 30 == 0:  # Log every 30 seconds
+                    logger.debug(f"Task {task.id} still running ({elapsed}s elapsed)")
 
                 # Wait before next check
                 await asyncio.sleep(check_interval)
@@ -375,7 +424,7 @@ class Orchestrator:
                 logger.debug(f"Error checking task completion: {e}")
                 await asyncio.sleep(check_interval)
 
-        logger.warning(f"Task {task.id} completion check timed out after {timeout}s")
+        logger.warning(f"Task {task.id} timed out after {timeout}s")
         logger.info("Task may still be running - check the browser tab manually")
 
     def _show_summary(self) -> None:

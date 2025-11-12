@@ -267,16 +267,24 @@ class TUIOrchestrator:
                 retries=task.retry_count,
             )
 
-            # Step 3: Try to create new session
-            try:
-                await self.browser.click("[data-testid='new-session-button']")
-                await asyncio.sleep(2.0)
-            except Exception as e:
-                logger.warning(f"Could not click new session button: {e}")
+            # Step 3: Select repository if specified
+            if hasattr(task, 'repository') and task.repository:
+                try:
+                    logger.info(f"Selecting repository: {task.repository}")
+                    await self.browser.click("Select repository button")
+                    await asyncio.sleep(2.0)
 
-            # Step 4: Get session URL
-            current_url = await self.browser.get_current_url()
-            session_id = self._extract_session_id_from_url(current_url)
+                    parts = task.repository.split('/')
+                    if len(parts) >= 2:
+                        owner = parts[0]
+                        repo_name = parts[1]
+                        await self.browser.click(f"{repo_name} {owner} repository option")
+                    else:
+                        await self.browser.click(f"{task.repository} repository option")
+
+                    await asyncio.sleep(1.0)
+                except Exception as e:
+                    logger.warning(f"Could not select repository: {e}")
 
             self.app.update_execution(
                 task=task,
@@ -285,14 +293,23 @@ class TUIOrchestrator:
                 retries=task.retry_count,
             )
 
-            # Step 5: Submit task prompt
+            # Step 4: Submit task prompt
             logger.info(f"Submitting task prompt for task {task.id}")
             try:
-                await self.browser.fill("textarea[placeholder*='message']", task.prompt)
+                await self.browser.fill("Message input textbox", task.prompt)
                 await asyncio.sleep(1.0)
-                await self.browser.click("button[type='submit']")
+                await self.browser.click("Submit button")
             except Exception as e:
                 logger.warning(f"Could not submit prompt automatically: {e}")
+                raise
+
+            # Step 5: Wait for session URL to update
+            await asyncio.sleep(3.0)
+            current_url = await self.browser.get_current_url()
+            session_id = self._extract_session_id_from_url(current_url)
+
+            # Dismiss notification dialog if present
+            await self.browser.dismiss_notification_dialog()
 
             self.app.update_execution(
                 task=task,
