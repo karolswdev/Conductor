@@ -143,7 +143,7 @@ class AuthenticationFlow:
             await asyncio.wait_for(
                 loop.run_in_executor(
                     None,
-                    lambda: input()  # Will wait for Enter key
+                    lambda: input("\nPress Enter after you have logged in to Claude Code in the browser... ")
                 ),
                 timeout=self.timeout
             )

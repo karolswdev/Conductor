@@ -94,7 +94,7 @@ class TUIOrchestrator:
     async def _authenticate(self) -> None:
         """Run authentication flow."""
         self.app.notify(
-            "Please log in to Claude Code in the browser",
+            "Browser opening - log in to Claude Code, then press Enter in terminal",
             title="Authentication",
             timeout=10,
         )
