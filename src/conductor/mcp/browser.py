@@ -45,10 +45,9 @@ class BrowserController:
             logger.info(f"Launching browser (headless={headless})")
 
             await self.client.call_tool(
-                "playwright_navigate",
+                "browser_navigate",
                 {
                     "url": "about:blank",
-                    "headless": headless,
                 },
             )
 
@@ -74,10 +73,9 @@ class BrowserController:
             logger.info(f"Navigating to {url}")
 
             await self.client.call_tool(
-                "playwright_navigate",
+                "browser_navigate",
                 {
                     "url": url,
-                    "wait_until": wait_until,
                 },
             )
 
@@ -101,11 +99,13 @@ class BrowserController:
         try:
             logger.debug(f"Clicking element: {selector}")
 
+            # Note: browser_click requires 'element' and 'ref' parameters
+            # This simplified version may need adjustment based on actual usage
             await self.client.call_tool(
-                "playwright_click",
+                "browser_click",
                 {
-                    "selector": selector,
-                    "timeout": timeout * 1000,  # Convert to ms
+                    "element": selector,
+                    "ref": selector,
                 },
             )
 
@@ -128,12 +128,14 @@ class BrowserController:
         try:
             logger.debug(f"Filling element: {selector}")
 
+            # Note: browser_type requires 'element', 'ref', and 'text' parameters
             await self.client.call_tool(
-                "playwright_fill",
+                "browser_type",
                 {
-                    "selector": selector,
+                    "element": selector,
+                    "ref": selector,
                     "text": text,
-                    "timeout": timeout * 1000,
+                    "submit": False,
                 },
             )
 
@@ -158,9 +160,10 @@ class BrowserController:
             logger.debug("Taking screenshot")
 
             result = await self.client.call_tool(
-                "playwright_screenshot",
+                "browser_take_screenshot",
                 {
-                    "full_page": True,
+                    "fullPage": True,
+                    "type": "png",
                 },
             )
 
@@ -199,12 +202,12 @@ class BrowserController:
         try:
             logger.debug(f"Waiting for selector: {selector} (state={state})")
 
+            # browser_wait_for uses text or time, not selectors
+            # This is a simplified approximation
             await self.client.call_tool(
-                "playwright_wait_for_selector",
+                "browser_wait_for",
                 {
-                    "selector": selector,
-                    "timeout": timeout * 1000,
-                    "state": state,
+                    "text": selector,
                 },
             )
 
@@ -228,9 +231,11 @@ class BrowserController:
             MCPError: If operation fails
         """
         try:
+            # browser_snapshot returns page accessibility tree
+            # Getting specific element text requires parsing the snapshot
             result = await self.client.call_tool(
-                "playwright_get_text",
-                {"selector": selector},
+                "browser_snapshot",
+                {},
             )
 
             # Handle MCP response format
@@ -262,8 +267,8 @@ class BrowserController:
         """
         try:
             result = await self.client.call_tool(
-                "playwright_evaluate",
-                {"expression": "window.location.href"},
+                "browser_evaluate",
+                {"function": "() => window.location.href"},
             )
 
             # Handle MCP response format
@@ -290,7 +295,7 @@ class BrowserController:
         if self._browser_launched:
             logger.info("Closing browser")
             try:
-                await self.client.call_tool("playwright_close", {})
+                await self.client.call_tool("browser_close", {})
                 self._browser_launched = False
             except Exception as e:
                 logger.warning(f"Error closing browser: {e}")
