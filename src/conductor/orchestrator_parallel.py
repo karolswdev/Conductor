@@ -341,12 +341,22 @@ class ParallelOrchestrator:
                 logger.info(f"Switching to tab {tab_index} for task {task.id}")
                 await browser.switch_tab(tab_index)
 
-                # Give browser a moment to actually switch tabs
-                await asyncio.sleep(0.5)
+                # Give browser time to actually switch tabs (increased from 0.5s)
+                await asyncio.sleep(1.0)
 
-                logger.info(f"Navigating to Claude Code for task {task.id}")
+                # Verify we're on the right tab by getting current URL
+                current_url = await browser.get_current_url()
+                logger.info(f"Current URL before navigate for task {task.id}: {current_url}")
+
+                logger.info(f"Navigating tab {tab_index} to Claude Code for task {task.id}")
                 await browser.navigate("https://claude.ai/code")
-                logger.info(f"Navigation to Claude Code completed for task {task.id}")
+
+                # Wait a moment for navigation to start
+                await asyncio.sleep(1.0)
+
+                # Verify navigation worked
+                new_url = await browser.get_current_url()
+                logger.info(f"Current URL after navigate for task {task.id}: {new_url}")
 
             # Wait for page to load
             await asyncio.sleep(3.0)
