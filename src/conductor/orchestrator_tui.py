@@ -546,27 +546,21 @@ async def run_with_tui(config: Config, task_list: TaskList) -> None:
 
     print("✅ Authentication successful!\n")
 
-    # STEP 2: Now that we're authenticated, create and run TUI
-    app = ConductorTUI(task_list=task_list)
-
-    # Create orchestrator with pre-authenticated browser
-    orchestrator = TUIOrchestrator(config, task_list, app)
+    # STEP 2: Now that we're authenticated, create orchestrator and TUI
+    # Create orchestrator without the app first
+    orchestrator = TUIOrchestrator(config, task_list, app=None)
     orchestrator.mcp_client = mcp_client
     orchestrator.browser = browser
     orchestrator.auth_flow = auth_flow
 
+    # Create TUI with orchestrator - TUI will start orchestrator as worker in on_mount()
+    app = ConductorTUI(task_list=task_list, orchestrator=orchestrator)
+    # Set the app reference in orchestrator
+    orchestrator.app = app
+
     try:
-        # Run orchestrator in background
-        async def run_orchestrator():
-            await orchestrator.run()
-            # Keep app running after orchestration completes
-            await asyncio.sleep(5)
-            app.exit()
-
-        # Start orchestrator as background task
-        asyncio.create_task(run_orchestrator())
-
         # Run the TUI app
+        # The orchestrator will be started automatically by TUI's on_mount() method
         await app.run_async()
 
     finally:

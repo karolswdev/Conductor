@@ -338,9 +338,10 @@ class ConductorTUI(App):
 
     TITLE = "🎭 Conductor - Claude Code Orchestration"
 
-    def __init__(self, task_list: Optional[TaskList] = None, **kwargs):
+    def __init__(self, task_list: Optional[TaskList] = None, orchestrator=None, **kwargs):
         super().__init__(**kwargs)
         self.task_list = task_list or TaskList()
+        self.orchestrator = orchestrator  # Optional orchestrator to run in background
         self.task_queue_panel = None
         self.execution_panel = None
         self.metrics_panel = None
@@ -372,6 +373,41 @@ class ConductorTUI(App):
         """Called when app is mounted."""
         # Initialize metrics
         self.update_metrics()
+
+        # Start orchestrator as background worker if provided
+        if self.orchestrator:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info("=== STARTING ORCHESTRATOR AS WORKER ===")
+            self.run_worker(self._run_orchestrator(), exclusive=False)
+
+    async def _run_orchestrator(self):
+        """Run the orchestrator and handle completion."""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        try:
+            logger.info("=== WORKER: Starting orchestrator.run() ===")
+            await self.orchestrator.run()
+            logger.info("=== WORKER: Orchestrator completed successfully ===")
+
+            # Keep app alive for a few seconds after completion
+            import asyncio
+            logger.info("Keeping app alive for 5 seconds...")
+            await asyncio.sleep(5)
+
+            logger.info("Calling self.exit()...")
+            self.exit()
+
+        except Exception as e:
+            logger.exception("=== WORKER: Orchestrator failed ===")
+            self.notify(f"Orchestrator failed: {e}", title="Error", severity="error", timeout=10)
+            import traceback
+            traceback.print_exc()
+            # Keep app alive for 10 seconds to show error
+            import asyncio
+            await asyncio.sleep(10)
+            self.exit()
 
     def update_metrics(self):
         """Update metrics panel."""
