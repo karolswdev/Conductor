@@ -351,7 +351,7 @@ npx @playwright/mcp@latest --port 8931 --host 0.0.0.0 --allowed-hosts * --browse
 Mac config (`~/.conductor/config.yaml`):
 ```yaml
 mcp:
-  server_url: "http://192.168.1.100:8931"  # Your Windows PC IP
+  server_url: "http://192.168.1.100:8931/sse"  # Must end with /sse!
 ```
 </details>
 

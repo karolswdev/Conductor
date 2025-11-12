@@ -124,7 +124,7 @@ npx @playwright/mcp@latest --port 8931 --host 0.0.0.0
 
 # Mac connects via:
 mcp:
-  server_url: "http://192.168.1.100:8931"
+  server_url: "http://192.168.1.100:8931/sse"
 ```
 
 ## 🔥 Impressive Implementation Details

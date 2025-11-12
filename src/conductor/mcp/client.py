@@ -102,8 +102,15 @@ class MCPClient:
 
     async def _connect_sse(self) -> None:
         """Connect using HTTP/SSE transport."""
+        # Ensure URL ends with /sse for Playwright MCP compatibility
+        url = self.server_url
+        if not url.endswith('/sse'):
+            # If URL doesn't have /sse, add it
+            url = url.rstrip('/') + '/sse'
+            logger.info(f"Adjusted URL to SSE endpoint: {url}")
+
         # Use sse_client context manager
-        self._session_context = sse_client(url=self.server_url)
+        self._session_context = sse_client(url=url)
         self._read, self._write = await self._session_context.__aenter__()
         self._session = ClientSession(self._read, self._write)
         await self._session.__aenter__()

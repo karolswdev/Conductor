@@ -125,15 +125,24 @@ class DoctorDiagnostics:
                 raise MCPConnectionError("Connection established but not confirmed")
 
         except MCPConnectionError as e:
+            # Provide helpful troubleshooting info
+            troubleshoot = ""
+            if "http" in self.config.mcp.server_url.lower():
+                if not self.config.mcp.server_url.endswith('/sse'):
+                    troubleshoot = "\n  💡 Tip: Playwright MCP SSE endpoint should end with /sse"
+                    troubleshoot += f"\n  Try: {self.config.mcp.server_url.rstrip('/')}/sse"
+
             self.results.append(
                 DiagnosticResult(
                     name="MCP Connection",
                     status="fail",
                     message=f"Failed to connect to MCP server",
-                    details=str(e),
+                    details=str(e) + troubleshoot,
                 )
             )
             console.print(f"  [red]✗[/red] MCP connection failed: {e}")
+            if troubleshoot:
+                console.print(troubleshoot)
             raise  # Stop further checks
 
     async def _check_browser_launch(self) -> None:

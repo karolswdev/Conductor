@@ -274,7 +274,7 @@ mcp:
 1. Verify remote server is running:
    ```bash
    # On remote machine
-   npx @playwright/mcp@latest --port 8931 --host 0.0.0.0
+   npx @playwright/mcp@latest --port 8931 --host 0.0.0.0 --allowed-hosts *
    ```
 
 2. Check network connectivity:
@@ -283,11 +283,26 @@ mcp:
    telnet <remote-ip> 8931
    ```
 
-3. Update config with correct remote URL:
+3. Update config with correct remote URL (**IMPORTANT: Must end with /sse**):
    ```yaml
    mcp:
-     server_url: "http://<remote-ip>:8931"
+     server_url: "http://<remote-ip>:8931/sse"  # /sse endpoint is required!
    ```
+
+### Issue: "400 Bad Request" or "Connection refused"
+
+**Cause:** Incorrect endpoint - Playwright MCP uses `/sse` endpoint for SSE transport.
+
+**Solution:**
+- ✓ Correct: `http://192.168.1.5:8931/sse`
+- ✗ Wrong: `http://192.168.1.5:8931/mcp`
+- ✗ Wrong: `http://192.168.1.5:8931/`
+
+Update your `~/.conductor/config.yaml`:
+```yaml
+mcp:
+  server_url: "http://192.168.1.5:8931/sse"
+```
 
 ## Integration with E2E Testing
 
