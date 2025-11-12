@@ -115,6 +115,9 @@ class ParallelOrchestrator:
                 await client.connect()
                 browser = BrowserController(client)
 
+                # Launch the browser so it's ready for use
+                await browser.launch_browser(headless=self.config.auth.headless)
+
                 self.mcp_clients.append(client)
                 self.browsers.append(browser)
 
