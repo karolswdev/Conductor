@@ -64,7 +64,7 @@ mcp:
 #### 1. **Local MCP on Different Port**
 ```yaml
 mcp:
-  server_url: "http://localhost:8931"
+  server_url: "http://localhost:8931/sse"
   timeout: 30.0
   max_retries: 3
 ```
@@ -73,7 +73,7 @@ mcp:
 ```yaml
 # For controlling browser on another computer
 mcp:
-  server_url: "http://192.168.1.100:8931"  # IP of remote machine
+  server_url: "http://192.168.1.100:8931/sse"  # IP of remote machine
   timeout: 60.0  # Increase timeout for network latency
   max_retries: 5
 ```
@@ -103,7 +103,7 @@ EOF
 # Remote Windows PC
 cat > ~/.conductor/configs/remote-windows.yaml << EOF
 mcp:
-  server_url: "http://192.168.1.50:8931"
+  server_url: "http://192.168.1.50:8931/sse"
   timeout: 60.0
 auth:
   timeout: 180  # More time for remote login
@@ -448,7 +448,7 @@ curl http://localhost:8931/health
 
 # Update config with correct URL
 mcp:
-  server_url: "http://localhost:8931"
+  server_url: "http://localhost:8931/sse"
 ```
 
 ### Tasks Not Running in Expected Order

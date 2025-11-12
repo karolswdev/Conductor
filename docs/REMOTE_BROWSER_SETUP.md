@@ -69,7 +69,7 @@ Create or edit `~/.conductor/config.yaml`:
 ```yaml
 # MCP server configuration for remote Windows browser
 mcp:
-  server_url: "http://192.168.1.100:8931"  # Replace with your Windows PC IP
+  server_url: "http://192.168.1.100:8931/sse"  # Replace with your Windows PC IP
   timeout: 30.0
   max_retries: 3
 
@@ -159,7 +159,7 @@ If both machines are on the same local network (e.g., home WiFi):
 
 ```yaml
 mcp:
-  server_url: "http://192.168.1.100:8931"  # Local IP
+  server_url: "http://192.168.1.100:8931/sse"  # Local IP
 ```
 
 ### Different Networks (VPN/Tailscale)
@@ -168,7 +168,7 @@ If using VPN or Tailscale:
 
 ```yaml
 mcp:
-  server_url: "http://100.64.1.5:8931"  # Tailscale IP
+  server_url: "http://100.64.1.5:8931/sse"  # Tailscale IP
 ```
 
 ### Port Forwarding
@@ -177,7 +177,7 @@ If exposing over the internet (not recommended without security):
 
 ```yaml
 mcp:
-  server_url: "http://your-public-ip:8931"
+  server_url: "http://your-public-ip:8931/sse"
 ```
 
 ## Security Considerations
@@ -216,7 +216,7 @@ npx @playwright/mcp@latest \
 
 # Mac config uses localhost
 # mcp:
-#   server_url: "http://localhost:8931"
+#   server_url: "http://localhost:8931/sse"
 ```
 
 ### Firewall Rules
@@ -389,7 +389,7 @@ vim ~/.conductor/config.yaml
 Set server URL to Windows PC IP:
 ```yaml
 mcp:
-  server_url: "http://192.168.1.100:8931"
+  server_url: "http://192.168.1.100:8931/sse"
 ```
 
 ### 3. Run Your Tasks
@@ -479,7 +479,7 @@ npx @playwright/mcp@latest --port 8931 --host 0.0.0.0 --allowed-hosts * --browse
 Conductor config:
 ```yaml
 mcp:
-  server_url: "http://192.168.1.100:8931"  # Your Windows PC IP
+  server_url: "http://192.168.1.100:8931/sse"  # Your Windows PC IP
 ```
 
 This gives you:
