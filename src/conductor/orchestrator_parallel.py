@@ -150,7 +150,10 @@ class ParallelOrchestrator:
             check_interval=self.config.auth.check_interval,
         )
 
-        status = await auth_flow.start(headless=self.config.auth.headless)
+        status = await auth_flow.start(
+            headless=self.config.auth.headless,
+            wait_for_user_input=True
+        )
 
         if status == AuthStatus.AUTHENTICATED:
             if self.app:

@@ -98,18 +98,25 @@ class Orchestrator:
         )
 
         # Show instructions
-        console.print("\n[bold yellow]Please log in to Claude Code in the browser[/bold yellow]")
-        console.print(f"You have [bold]{self.config.auth.timeout}[/bold] seconds to complete authentication\n")
+        console.print("\n[bold yellow]🌐 Browser opened to Claude Code[/bold yellow]")
+        console.print("[bold]Please complete the following steps:[/bold]")
+        console.print("  1. Log in to Claude Code if not already logged in")
+        console.print("  2. Wait for the page to fully load")
+        console.print("  3. Press [bold cyan]Enter[/bold cyan] in this terminal when ready\n")
+        console.print(f"[dim](Timeout: {self.config.auth.timeout} seconds)[/dim]\n")
 
-        status = await self.auth_flow.start(headless=self.config.auth.headless)
+        status = await self.auth_flow.start(
+            headless=self.config.auth.headless,
+            wait_for_user_input=True
+        )
 
         if status == AuthStatus.AUTHENTICATED:
-            console.print("[green]✓[/green] Authentication successful!\n")
+            console.print("\n[green]✓[/green] Authentication confirmed! Starting task execution...\n")
         elif status == AuthStatus.TIMEOUT:
-            console.print("[red]✗[/red] Authentication timed out")
+            console.print("\n[red]✗[/red] Authentication timed out - no confirmation received")
             raise RuntimeError("Authentication timeout")
         else:
-            console.print(f"[red]✗[/red] Authentication failed: {status}")
+            console.print(f"\n[red]✗[/red] Authentication failed: {status}")
             raise RuntimeError(f"Authentication failed: {status}")
 
     async def _execute_tasks(self) -> None:

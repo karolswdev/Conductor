@@ -105,7 +105,10 @@ class TUIOrchestrator:
             check_interval=self.config.auth.check_interval,
         )
 
-        status = await self.auth_flow.start(headless=self.config.auth.headless)
+        status = await self.auth_flow.start(
+            headless=self.config.auth.headless,
+            wait_for_user_input=True
+        )
 
         if status == AuthStatus.AUTHENTICATED:
             self.app.notify(
