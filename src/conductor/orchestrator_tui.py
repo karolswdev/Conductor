@@ -51,11 +51,15 @@ class TUIOrchestrator:
         try:
             self.app.notify("Starting Conductor Orchestrator", title="🎭 Conductor")
 
-            # Step 1: Initialize MCP connection
-            await self._initialize_mcp()
+            # Step 1: Initialize MCP connection (skip if already initialized)
+            if not self.mcp_client:
+                await self._initialize_mcp()
 
-            # Step 2: Authenticate
-            await self._authenticate()
+            # Step 2: Authenticate (skip if already authenticated)
+            if not self.auth_flow:
+                await self._authenticate()
+            else:
+                self.app.notify("Already authenticated!", title="Auth", severity="information")
 
             # Step 3: Execute tasks
             await self._execute_tasks()
@@ -497,10 +501,51 @@ async def run_with_tui(config: Config, task_list: TaskList) -> None:
         config: Configuration
         task_list: Tasks to execute
     """
+    # STEP 1: Do browser authentication BEFORE creating TUI
+    # This prevents the TUI from getting stuck waiting for auth callbacks
+    logger.info("Initializing MCP and authenticating BEFORE starting TUI...")
+
+    # Initialize MCP client
+    mcp_client = MCPClient(
+        server_url=config.mcp.server_url,
+        timeout=config.mcp.timeout,
+        max_retries=config.mcp.max_retries,
+    )
+
+    await mcp_client.connect()
+    browser = BrowserController(mcp_client)
+
+    # Run authentication flow
+    print("\n🔐 Opening browser for authentication...")
+    print("Please log in to Claude Code, then press Enter in this terminal.\n")
+
+    auth_flow = AuthenticationFlow(
+        browser=browser,
+        timeout=config.auth.timeout,
+        check_interval=config.auth.check_interval,
+    )
+
+    status = await auth_flow.start(
+        headless=config.auth.headless,
+        wait_for_user_input=True
+    )
+
+    if status != AuthStatus.AUTHENTICATED:
+        print(f"\n❌ Authentication failed: {status}")
+        await browser.close()
+        await mcp_client.disconnect()
+        raise RuntimeError(f"Authentication failed: {status}")
+
+    print("✅ Authentication successful!\n")
+
+    # STEP 2: Now that we're authenticated, create and run TUI
     app = ConductorTUI(task_list=task_list)
 
-    # Create orchestrator
+    # Create orchestrator with pre-authenticated browser
     orchestrator = TUIOrchestrator(config, task_list, app)
+    orchestrator.mcp_client = mcp_client
+    orchestrator.browser = browser
+    orchestrator.auth_flow = auth_flow
 
     # Run orchestrator in background
     async def run_orchestrator():
