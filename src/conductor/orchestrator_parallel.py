@@ -5,7 +5,7 @@ Implements configurable parallel execution with semaphore-based concurrency cont
 
 import asyncio
 import logging
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Callable, Awaitable, Any
 from datetime import datetime
 
 from conductor.mcp.client import MCPClient
@@ -52,9 +52,8 @@ class ParallelOrchestrator:
         self.max_parallel = config.execution.max_parallel_tasks
         self.semaphore = asyncio.Semaphore(self.max_parallel)
 
-        # Lock for tab creation to prevent race conditions
-        # Multiple tasks creating tabs simultaneously can interfere with each other
-        self.tab_creation_lock = asyncio.Lock()
+        # Lock all browser interactions to prevent cross-tab race conditions
+        self.browser_lock = asyncio.Lock()
 
         # Track running tasks
         self.running_tasks: Dict[str, Task] = {}
@@ -64,6 +63,23 @@ class ParallelOrchestrator:
         # Single MCP client and browser (not multiple!)
         self.mcp_client: Optional[MCPClient] = None
         self.browser: Optional[BrowserController] = None
+
+    async def _run_in_tab(
+        self,
+        browser: BrowserController,
+        tab_index: int,
+        func: Callable[..., Awaitable[Any]],
+        *args,
+        **kwargs,
+    ) -> Any:
+        """
+        Safely run a browser action scoped to a specific tab.
+
+        Ensures the tab is selected and no other task interferes mid-action.
+        """
+        async with self.browser_lock:
+            await browser.switch_tab(tab_index)
+            return await func(*args, **kwargs)
 
     async def run(self) -> None:
         """Run parallel orchestration."""
@@ -332,33 +348,29 @@ class ParallelOrchestrator:
         tab_index = None
 
         try:
-            # Step 1: Create tab and navigate atomically using lock
-            # This prevents race conditions where multiple tasks interfere with each other
-            async with self.tab_creation_lock:
+            # Step 1: Create tab (must be serialized)
+            async with self.browser_lock:
                 logger.info(f"Creating new tab for task {task.id}")
                 tab_index = await browser.create_tab()
 
-                logger.info(f"Switching to tab {tab_index} for task {task.id}")
-                await browser.switch_tab(tab_index)
+            # Give Playwright a moment to create/select the tab
+            await asyncio.sleep(0.5)
 
-                # Give browser time to actually switch tabs (increased from 0.5s)
-                await asyncio.sleep(1.0)
+            # Navigate to Claude Code while holding the browser lock
+            logger.info(f"Switching to tab {tab_index} for task {task.id}")
+            current_url = await self._run_in_tab(browser, tab_index, browser.get_current_url)
+            logger.info(f"Current URL before navigate for task {task.id}: {current_url}")
 
-                # Verify we're on the right tab by getting current URL
-                current_url = await browser.get_current_url()
-                logger.info(f"Current URL before navigate for task {task.id}: {current_url}")
+            logger.info(f"Navigating tab {tab_index} to Claude Code for task {task.id}")
+            await self._run_in_tab(browser, tab_index, browser.navigate, "https://claude.ai/code")
 
-                logger.info(f"Navigating tab {tab_index} to Claude Code for task {task.id}")
-                await browser.navigate("https://claude.ai/code")
+            # Wait a moment for navigation to start before verifying
+            await asyncio.sleep(1.0)
 
-                # Wait a moment for navigation to start
-                await asyncio.sleep(1.0)
+            new_url = await self._run_in_tab(browser, tab_index, browser.get_current_url)
+            logger.info(f"Current URL after navigate for task {task.id}: {new_url}")
 
-                # Verify navigation worked
-                new_url = await browser.get_current_url()
-                logger.info(f"Current URL after navigate for task {task.id}: {new_url}")
-
-            # Wait for page to load
+            # Wait for page to load fully before interacting
             await asyncio.sleep(3.0)
 
             # Update progress
@@ -374,16 +386,26 @@ class ParallelOrchestrator:
             if hasattr(task, 'repository') and task.repository:
                 try:
                     logger.info(f"Selecting repository: {task.repository}")
-                    await browser.click("Select repository button")
+                    await self._run_in_tab(browser, tab_index, browser.click, "Select repository button")
                     await asyncio.sleep(2.0)
 
                     parts = task.repository.split('/')
                     if len(parts) >= 2:
                         owner = parts[0]
                         repo_name = parts[1]
-                        await browser.click(f"{repo_name} {owner} repository option")
+                        await self._run_in_tab(
+                            browser,
+                            tab_index,
+                            browser.click,
+                            f"{repo_name} {owner} repository option",
+                        )
                     else:
-                        await browser.click(f"{task.repository} repository option")
+                        await self._run_in_tab(
+                            browser,
+                            tab_index,
+                            browser.click,
+                            f"{task.repository} repository option",
+                        )
 
                     await asyncio.sleep(1.0)
                 except Exception as e:
@@ -401,20 +423,26 @@ class ParallelOrchestrator:
             # Step 3: Submit task prompt
             logger.info(f"Submitting task prompt for task {task.id}")
             try:
-                await browser.fill("Message input textbox", task.prompt)
+                await self._run_in_tab(
+                    browser,
+                    tab_index,
+                    browser.fill,
+                    "Message input textbox",
+                    task.prompt,
+                )
                 await asyncio.sleep(1.0)
-                await browser.click("Submit button")
+                await self._run_in_tab(browser, tab_index, browser.click, "Submit button")
             except Exception as e:
                 logger.warning(f"Could not submit prompt automatically: {e}")
                 raise
 
             # Step 4: Wait for session URL to update
             await asyncio.sleep(3.0)
-            current_url = await browser.get_current_url()
+            current_url = await self._run_in_tab(browser, tab_index, browser.get_current_url)
             session_id = self._extract_session_id_from_url(current_url)
 
             # Dismiss notification dialog if present
-            await browser.dismiss_notification_dialog()
+            await self._run_in_tab(browser, tab_index, browser.dismiss_notification_dialog)
 
             # Update progress
             if self.app:
@@ -441,7 +469,7 @@ class ParallelOrchestrator:
             # Step 6: Extract branch name
             branch_name = f"claude/{task.id.lower()}"
             try:
-                page_text = await browser.get_text("body")
+                page_text = await self._run_in_tab(browser, tab_index, browser.get_text, "body")
                 # Use browser's extract_branch_name method which looks for the correct pattern
                 extracted_branch = browser.extract_branch_name(page_text)
                 if extracted_branch:
@@ -455,7 +483,7 @@ class ParallelOrchestrator:
                 logger.debug(f"Could not extract branch name: {e}")
 
             # Step 7: Record session
-            final_url = await browser.get_current_url()
+            final_url = await self._run_in_tab(browser, tab_index, browser.get_current_url)
             self.session_manager.add_session(
                 session_id=session_id or f"session_{task.id}_{int(datetime.now().timestamp())}",
                 task_id=task.id,
@@ -542,11 +570,8 @@ class ParallelOrchestrator:
 
         while time.time() - check_start < timeout:
             try:
-                # Switch to the task's tab
-                await browser.switch_tab(tab_index)
-
-                # Get page text to check for completion
-                page_text = await browser.get_text("body")
+                # Get page text from the specific tab to check for completion
+                page_text = await self._run_in_tab(browser, tab_index, browser.get_text, "body")
 
                 # Primary indicator: Check if "Create PR" button is enabled
                 if browser.is_create_pr_button_enabled(page_text):
