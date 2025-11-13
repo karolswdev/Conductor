@@ -686,57 +686,36 @@ async def run_with_tui_parallel(config: Config, task_list: TaskList) -> None:
 
     print("✅ Authentication successful!\n")
 
-    # STEP 2: Now that we're authenticated, create and run TUI
-    logger.info("Creating ConductorTUI...")
-    try:
-        app = ConductorTUI(task_list=task_list)
-        logger.info(f"ConductorTUI created successfully: {app}")
-    except Exception as e:
-        logger.exception("Failed to create ConductorTUI")
-        raise
-
-    # Create parallel orchestrator with pre-authenticated browser
+    # STEP 2: Now that we're authenticated, create orchestrator and TUI
     logger.info("Creating ParallelOrchestrator...")
     try:
-        orchestrator = ParallelOrchestrator(config, task_list, app)
+        # Create orchestrator without the app first
+        orchestrator = ParallelOrchestrator(config, task_list, app=None)
         orchestrator.mcp_client = mcp_client
         orchestrator.browser = browser
         logger.info(f"ParallelOrchestrator created successfully")
         logger.info(f"  - mcp_client: {orchestrator.mcp_client}")
         logger.info(f"  - browser: {orchestrator.browser}")
-        logger.info(f"  - app: {orchestrator.app}")
     except Exception as e:
         logger.exception("Failed to create ParallelOrchestrator")
         raise
 
-    logger.info("About to create TUI and start orchestrator...")
+    # Create TUI with orchestrator - TUI will start orchestrator as worker in on_mount()
+    logger.info("Creating ConductorTUI with orchestrator...")
+    try:
+        app = ConductorTUI(task_list=task_list, orchestrator=orchestrator)
+        # Set the app reference in orchestrator
+        orchestrator.app = app
+        logger.info(f"ConductorTUI created successfully: {app}")
+    except Exception as e:
+        logger.exception("Failed to create ConductorTUI")
+        raise
+
+    logger.info("About to start TUI (orchestrator will start as worker in on_mount)...")
 
     try:
-        # Run orchestrator in background with extensive error handling
-        async def run_orchestrator():
-            try:
-                logger.info("=== BACKGROUND TASK STARTED ===")
-                logger.info("About to call orchestrator.run()...")
-                await orchestrator.run()
-                logger.info("=== ORCHESTRATOR COMPLETED SUCCESSFULLY ===")
-                # Keep app running after orchestration completes
-                logger.info("Keeping app alive for 5 seconds...")
-                await asyncio.sleep(5)
-                logger.info("Calling app.exit()...")
-                app.exit()
-            except Exception as e:
-                logger.exception("=== BACKGROUND TASK FAILED ===")
-                print(f"\n❌ Orchestrator failed: {e}\n")
-                import traceback
-                traceback.print_exc()
-                app.exit()
-
-        # Start orchestrator as background task
-        logger.info("Creating background task...")
-        task = asyncio.create_task(run_orchestrator())
-        logger.info(f"Background task created: {task}")
-
-        # Run the TUI app (this should block until app.exit() is called)
+        # Run the TUI app
+        # The orchestrator will be started automatically by TUI's on_mount() method
         logger.info("=== STARTING TUI APP ===")
         logger.info("Calling app.run_async()...")
         await app.run_async()
