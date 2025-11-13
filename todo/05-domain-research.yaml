@@ -12,6 +12,7 @@ metadata:
 config:
   default_priority: "high"
   default_auto_pr_timeout: 7200  # 2 hours for research
+  default_repository: "karolswdev/everdriven-research"
   default_retry_policy:
     max_attempts: 2
     backoff_factor: 2.0

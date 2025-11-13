@@ -196,9 +196,10 @@ class Orchestrator:
             # Wait for page to load
             await asyncio.sleep(3.0)
 
-            # Step 4: Select repository if specified
-            if hasattr(task, 'repository') and task.repository:
-                await self._select_repository(task.repository)
+            # Step 4: Select repository if specified (fallback to config default)
+            repository = getattr(task, "repository", None) or self.config.default_repository
+            if repository:
+                await self._select_repository(repository)
 
             # Step 5: Fill and submit the prompt
             await self._submit_prompt(task.prompt)
@@ -266,8 +267,11 @@ class Orchestrator:
         try:
             logger.info(f"Selecting repository: {repository}")
 
-            # Click repository selector button
-            await self.browser.click("Select repository button")
+            # Click repository selector button (try both descriptions)
+            try:
+                await self.browser.click("repository selector button")
+            except Exception:
+                await self.browser.click("Select repository button")
             await asyncio.sleep(2.0)
 
             # Parse repository path

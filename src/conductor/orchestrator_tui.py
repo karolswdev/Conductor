@@ -277,20 +277,24 @@ class TUIOrchestrator:
                 retries=task.retry_count,
             )
 
-            # Step 3: Select repository if specified
-            if hasattr(task, 'repository') and task.repository:
+            # Step 3: Select repository if specified (fallback to config default)
+            repository = getattr(task, "repository", None) or self.config.default_repository
+            if repository:
                 try:
-                    logger.info(f"Selecting repository: {task.repository}")
-                    await self.browser.click("Select repository button")
+                    logger.info(f"Selecting repository: {repository}")
+                    try:
+                        await self.browser.click("repository selector button")
+                    except Exception:
+                        await self.browser.click("Select repository button")
                     await asyncio.sleep(2.0)
 
-                    parts = task.repository.split('/')
+                    parts = repository.split('/')
                     if len(parts) >= 2:
                         owner = parts[0]
                         repo_name = parts[1]
                         await self.browser.click(f"{repo_name} {owner} repository option")
                     else:
-                        await self.browser.click(f"{task.repository} repository option")
+                        await self.browser.click(f"{repository} repository option")
 
                     await asyncio.sleep(1.0)
                 except Exception as e:

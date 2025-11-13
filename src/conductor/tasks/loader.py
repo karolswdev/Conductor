@@ -2,6 +2,7 @@
 Task loader for loading tasks from YAML files.
 """
 
+import re
 import yaml
 from pathlib import Path
 from typing import Union, Dict, Any
@@ -87,6 +88,17 @@ class TaskLoader:
 
         tasks_data = data["tasks"]
 
+        # Pull defaults from config section if present
+        default_repo = None
+        config_block = data.get("config")
+        if isinstance(config_block, dict):
+            default_repo = config_block.get("default_repository")
+            if default_repo:
+                if not re.match(r"^[\w-]+/[\w-]+$", default_repo):
+                    raise TaskLoadError(
+                        f"config.default_repository must be in owner/repo format, got: {default_repo}"
+                    )
+
         if not isinstance(tasks_data, list):
             raise TaskLoadError("'tasks' must be a list")
 
@@ -100,6 +112,10 @@ class TaskLoader:
                 raise TaskLoadError(f"Task at index {i} must be a dictionary")
 
             try:
+                # Apply defaults
+                if default_repo and not task_data.get("repository"):
+                    task_data["repository"] = default_repo
+
                 # Handle retry_policy if present
                 if "retry_policy" in task_data and isinstance(task_data["retry_policy"], dict):
                     task_data["retry_policy"] = RetryPolicy(**task_data["retry_policy"])

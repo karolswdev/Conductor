@@ -16,6 +16,7 @@ from .browser_snapshot_parser import (
     find_element_in_snapshot,
     is_create_pr_button_enabled as check_create_pr_button_enabled,
     extract_branch_name as extract_branch_name_from_text,
+    extract_snapshot_text,
 )
 
 
@@ -312,19 +313,8 @@ class BrowserController:
             MCPError: If operation fails
         """
         try:
-            # Get accessibility snapshot
             snapshot = await self.get_snapshot()
-
-            # Extract text from snapshot
-            snapshot_text = ""
-            if "content" in snapshot and isinstance(snapshot["content"], list):
-                for item in snapshot["content"]:
-                    if hasattr(item, "text"):
-                        snapshot_text = item.text
-                    elif isinstance(item, dict) and "text" in item:
-                        snapshot_text = item["text"]
-
-            return snapshot_text
+            return extract_snapshot_text(snapshot) or ""
 
         except Exception as e:
             logger.error(f"Get text failed: {e}")
@@ -346,13 +336,22 @@ class BrowserController:
                 {"function": "() => window.location.href"},
             )
 
+            text_value: Optional[str] = None
+
             # Handle MCP response format
             if "content" in result and isinstance(result["content"], list):
                 for item in result["content"]:
                     if hasattr(item, "text"):
-                        return item.text
+                        text_value = item.text
                     elif isinstance(item, dict) and "text" in item:
-                        return item["text"]
+                        text_value = item["text"]
+
+                    if text_value:
+                        url = self._extract_url_from_text(text_value)
+                        if url:
+                            return url
+                        return text_value
+
                 return ""
             elif "result" in result:
                 return str(result["result"])
@@ -363,6 +362,16 @@ class BrowserController:
         except Exception as e:
             logger.error(f"Get URL failed: {e}")
             raise MCPError(f"Failed to get current URL: {e}") from e
+
+    def _extract_url_from_text(self, text: str) -> Optional[str]:
+        """Extract the first URL-like substring from a text blob."""
+        if not text:
+            return None
+
+        match = re.search(r"(https?://[^\s\"'`]+)", text)
+        if match:
+            return match.group(1)
+        return None
 
     async def create_tab(self) -> int:
         """
@@ -384,12 +393,24 @@ class BrowserController:
                 },
             )
 
-            # Get the list of tabs to find the new one
-            tabs = await self.list_tabs()
-            new_tab_index = len(tabs) - 1
+            new_tab_index = self._extract_tab_index(result)
+
+            if new_tab_index is None:
+                tabs_from_result = self._extract_tabs_from_result(result)
+                if tabs_from_result:
+                    new_tab_index = tabs_from_result[-1].get("index")
+
+            if new_tab_index is None:
+                tabs = await self.list_tabs()
+                if tabs:
+                    # Pick the highest index available
+                    new_tab_index = max(tab.get("index", -1) for tab in tabs)
+
+            if new_tab_index is None or new_tab_index < 0:
+                raise MCPError("Unable to determine new tab index after creation")
 
             logger.info(f"Created new tab at index {new_tab_index}")
-            return new_tab_index
+            return int(new_tab_index)
 
         except Exception as e:
             logger.error(f"Failed to create tab: {e}")
@@ -413,18 +434,8 @@ class BrowserController:
                 },
             )
 
-            # Parse the result to get tab list
-            if "content" in result and isinstance(result["content"], list):
-                for item in result["content"]:
-                    if hasattr(item, "text"):
-                        return self._parse_tab_list(item.text)
-                    elif isinstance(item, dict) and "text" in item:
-                        return self._parse_tab_list(item["text"])
-                return []
-            elif "tabs" in result:
-                return result["tabs"]
-            else:
-                return []
+            tabs = self._extract_tabs_from_result(result)
+            return tabs
 
         except Exception as e:
             logger.error(f"Failed to list tabs: {e}")
@@ -494,15 +505,101 @@ class BrowserController:
         Returns:
             List of tab info dictionaries
         """
-        # Simple parsing - this may need adjustment based on actual format
         tabs = []
-        lines = text.strip().split("\n")
+        if not text:
+            return tabs
 
-        for i, line in enumerate(lines):
-            if line.strip():
-                tabs.append({"index": i, "title": line.strip()})
+        lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
+        sequential_index = 0
+
+        for line in lines:
+            if line.startswith("#"):  # Skip markdown headings like ### Tabs
+                continue
+
+            match = re.match(r"(\d+)[\.:)\-]\s*(.+)", line)
+            if match:
+                # Most textual lists are 1-based; convert to 0-based
+                idx = int(match.group(1))
+                converted_idx = idx - 1 if idx > 0 else idx
+                title = match.group(2).strip()
+                tabs.append({"index": converted_idx, "title": title})
+            else:
+                tabs.append({"index": sequential_index, "title": line})
+                sequential_index += 1
 
         return tabs
+
+    def _get_content_attr(self, item: Any, attr: str) -> Any:
+        if isinstance(item, dict):
+            return item.get(attr)
+        return getattr(item, attr, None)
+
+    def _extract_tab_index(self, result: Dict[str, Any]) -> Optional[int]:
+        """
+        Try to extract a tab index from a browser_tabs response.
+        """
+        for item in result.get("content", []):
+            item_type = self._get_content_attr(item, "type")
+
+            if item_type == "application/json":
+                data = self._get_content_attr(item, "json")
+                if isinstance(data, dict):
+                    if "index" in data:
+                        return int(data["index"])
+                    if "tab" in data and isinstance(data["tab"], dict):
+                        index = data["tab"].get("index")
+                        if index is not None:
+                            return int(index)
+
+            text = self._get_content_attr(item, "text")
+            if text:
+                match = re.search(r"index\s*[:=]\s*(\d+)", text, re.IGNORECASE)
+                if match:
+                    return int(match.group(1))
+
+        return None
+
+    def _extract_tabs_from_result(self, result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Extract structured tab information from a browser_tabs response.
+        """
+        if isinstance(result.get("tabs"), list):
+            return result["tabs"]
+
+        content = result.get("content", [])
+        for item in content:
+            item_type = self._get_content_attr(item, "type")
+
+            if item_type == "application/json":
+                data = self._get_content_attr(item, "json")
+                if isinstance(data, dict) and isinstance(data.get("tabs"), list):
+                    normalized = []
+                    for entry in data["tabs"]:
+                        if not isinstance(entry, dict):
+                            continue
+                        index = entry.get("index")
+                        if index is None:
+                            index = len(normalized)
+                        normalized.append(
+                            {
+                                "index": int(index),
+                                "title": entry.get("title")
+                                or entry.get("url")
+                                or f"Tab {index}",
+                                "url": entry.get("url", ""),
+                                "active": entry.get("active", False),
+                            }
+                        )
+                    if normalized:
+                        return normalized
+
+            text = self._get_content_attr(item, "text")
+            if text:
+                parsed = self._parse_tab_list(text)
+                if parsed:
+                    return parsed
+
+        return []
 
     def extract_branch_name(self, snapshot_text: str) -> Optional[str]:
         """
