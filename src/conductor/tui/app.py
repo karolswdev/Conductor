@@ -349,6 +349,10 @@ class ConductorTUI(App):
 
     def compose(self) -> ComposeResult:
         """Create the TUI layout."""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("=== TUI compose() CALLED ===")
+
         yield Header(show_clock=True)
 
         # Top container: Task Queue, Execution, Metrics
@@ -371,15 +375,29 @@ class ConductorTUI(App):
 
     def on_mount(self) -> None:
         """Called when app is mounted."""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("=== TUI on_mount() CALLED ===")
+
         # Initialize metrics
         self.update_metrics()
+        logger.info("Metrics updated")
 
         # Start orchestrator as background worker if provided
         if self.orchestrator:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info("=== STARTING ORCHESTRATOR AS WORKER ===")
-            self.run_worker(self._run_orchestrator(), exclusive=False)
+            logger.info(f"=== STARTING ORCHESTRATOR AS WORKER === orchestrator={self.orchestrator}")
+            # Use set_timer to defer starting until app is fully ready
+            self.set_timer(0.1, self._start_orchestrator)
+        else:
+            logger.warning("No orchestrator provided to TUI!")
+
+    def _start_orchestrator(self) -> None:
+        """Start the orchestrator worker after app is fully initialized."""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("=== _start_orchestrator() called ===")
+        logger.info(f"Starting worker for orchestrator: {self.orchestrator}")
+        self.run_worker(self._run_orchestrator(), exclusive=False, name="orchestrator")
 
     async def _run_orchestrator(self):
         """Run the orchestrator and handle completion."""
