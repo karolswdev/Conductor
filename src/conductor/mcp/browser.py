@@ -386,12 +386,22 @@ class BrowserController:
         try:
             logger.debug("Creating new tab")
 
-            result = await self.client.call_tool(
-                "browser_tabs",
-                {
-                    "action": "new",
-                },
-            )
+            result = None
+            try:
+                result = await self.client.call_tool(
+                    "browser_tabs",
+                    {
+                        "action": "new",
+                    },
+                )
+            except Exception as e:
+                logger.debug(f"'browser_tabs new' failed ({e}); falling back to window.open")
+                await self.client.call_tool(
+                    "browser_evaluate",
+                    {
+                        "function": "() => window.open('about:blank', '_blank')",
+                    },
+                )
 
             new_tab_index = self._extract_tab_index(result)
 
@@ -534,10 +544,13 @@ class BrowserController:
             return item.get(attr)
         return getattr(item, attr, None)
 
-    def _extract_tab_index(self, result: Dict[str, Any]) -> Optional[int]:
+    def _extract_tab_index(self, result: Optional[Dict[str, Any]]) -> Optional[int]:
         """
         Try to extract a tab index from a browser_tabs response.
         """
+        if not isinstance(result, dict):
+            return None
+
         for item in result.get("content", []):
             item_type = self._get_content_attr(item, "type")
 
@@ -559,10 +572,13 @@ class BrowserController:
 
         return None
 
-    def _extract_tabs_from_result(self, result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _extract_tabs_from_result(self, result: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Extract structured tab information from a browser_tabs response.
         """
+        if not isinstance(result, dict):
+            return []
+
         if isinstance(result.get("tabs"), list):
             return result["tabs"]
 

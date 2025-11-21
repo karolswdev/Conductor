@@ -5,7 +5,7 @@ Implements configurable parallel execution with semaphore-based concurrency cont
 
 import asyncio
 import logging
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Callable, Awaitable, Any
 from datetime import datetime
 
 from conductor.mcp.client import MCPClient
@@ -63,6 +63,23 @@ class ParallelOrchestrator:
         # Single MCP client and browser (shared with all tasks)
         self.mcp_client: Optional[MCPClient] = None
         self.browser: Optional[BrowserController] = None
+
+    async def _run_in_tab(
+        self,
+        browser: BrowserController,
+        tab_index: int,
+        func: Callable[..., Awaitable[Any]],
+        *args,
+        **kwargs,
+    ) -> Any:
+        """
+        Safely run a browser action scoped to a specific tab.
+
+        Ensures the tab is selected and no other task interferes mid-action.
+        """
+        async with self.browser_lock:
+            await browser.switch_tab(tab_index)
+            return await func(*args, **kwargs)
 
     async def run(self) -> None:
         """Run parallel orchestration."""
@@ -327,15 +344,23 @@ class ParallelOrchestrator:
             browser: Browser to use
             start_time: When execution started
         """
-        session_url: Optional[str] = None
         session_id: Optional[str] = None
+        tab_index: Optional[int] = None
 
         try:
-            # Step 1: Bring browser to a fresh Claude session (serialized)
+            # Step 1: Create tab (serialize creation to avoid race condition)
             async with self.browser_lock:
-                logger.info(f"Preparing Claude session for task {task.id}")
-                await browser.navigate("https://claude.ai/code/new")
-                await asyncio.sleep(3.0)
+                logger.info(f"Creating new tab for task {task.id}")
+                tab_index = await browser.create_tab()
+
+            # Give Playwright a moment to register the tab
+            await asyncio.sleep(0.5)
+
+            logger.info(f"Switching to tab {tab_index} for task {task.id}")
+            await self._run_in_tab(browser, tab_index, browser.navigate, "https://claude.ai/code/new")
+
+            # Wait for page to load fully before interacting
+            await asyncio.sleep(3.0)
 
             # Update progress
             if self.app:
@@ -346,29 +371,38 @@ class ParallelOrchestrator:
                     retries=task.retry_count,
                 )
 
-            # Step 2: Repository selection + prompt submission happen while holding the lock
-            async with self.browser_lock:
-                repository = getattr(task, "repository", None) or self.config.default_repository
-                if repository:
+            # Step 2: Repository selection (per tab)
+            repository = getattr(task, "repository", None) or self.config.default_repository
+            if repository:
+                try:
+                    logger.info(f"Selecting repository: {repository}")
                     try:
-                        logger.info(f"Selecting repository: {repository}")
-                        try:
-                            await browser.click("repository selector button")
-                        except Exception:
-                            await browser.click("Select repository button")
-                        await asyncio.sleep(2.0)
+                        await self._run_in_tab(browser, tab_index, browser.click, "repository selector button")
+                    except Exception:
+                        await self._run_in_tab(browser, tab_index, browser.click, "Select repository button")
+                    await asyncio.sleep(2.0)
 
-                        parts = repository.split('/')
-                        if len(parts) >= 2:
-                            owner = parts[0]
-                            repo_name = parts[1]
-                            await browser.click(f"{repo_name} {owner} repository option")
-                        else:
-                            await browser.click(f"{repository} repository option")
+                    parts = repository.split('/')
+                    if len(parts) >= 2:
+                        owner = parts[0]
+                        repo_name = parts[1]
+                        await self._run_in_tab(
+                            browser,
+                            tab_index,
+                            browser.click,
+                            f"{repo_name} {owner} repository option",
+                        )
+                    else:
+                        await self._run_in_tab(
+                            browser,
+                            tab_index,
+                            browser.click,
+                            f"{repository} repository option",
+                        )
 
-                        await asyncio.sleep(1.0)
-                    except Exception as e:
-                        logger.warning(f"Could not select repository: {e}")
+                    await asyncio.sleep(1.0)
+                except Exception as e:
+                    logger.warning(f"Could not select repository: {e}")
 
             # Update progress
             if self.app:
@@ -382,16 +416,20 @@ class ParallelOrchestrator:
             # Step 3: Submit task prompt
             logger.info(f"Submitting task prompt for task {task.id}")
             try:
-                async with self.browser_lock:
-                    await browser.fill("Message input textbox", task.prompt)
-                    await asyncio.sleep(1.0)
-                    await browser.click("Submit button")
-                    await asyncio.sleep(3.0)
-                    current_url = await browser.get_current_url()
-                    session_url = self._normalize_session_url(current_url)
-                    session_source = session_url or current_url or ""
-                    session_id = self._extract_session_id_from_url(session_source)
-                    await browser.dismiss_notification_dialog()
+                await self._run_in_tab(
+                    browser,
+                    tab_index,
+                    browser.fill,
+                    "Message input textbox",
+                    task.prompt,
+                )
+                await asyncio.sleep(1.0)
+                await self._run_in_tab(browser, tab_index, browser.click, "Submit button")
+                await asyncio.sleep(3.0)
+                current_url = await self._run_in_tab(browser, tab_index, browser.get_current_url)
+                session_source = self._normalize_session_url(current_url) or current_url or ""
+                session_id = self._extract_session_id_from_url(session_source)
+                await self._run_in_tab(browser, tab_index, browser.dismiss_notification_dialog)
             except Exception as e:
                 logger.warning(f"Could not submit prompt automatically: {e}")
                 raise
@@ -407,7 +445,7 @@ class ParallelOrchestrator:
 
             # Step 5: Monitor for completion
             logger.info(f"Waiting for task {task.id} to complete...")
-            await self._wait_for_task_completion(task, browser, session_url, start_time)
+            await self._wait_for_task_completion(task, browser, tab_index, start_time)
 
             # Update progress
             if self.app:
@@ -421,11 +459,7 @@ class ParallelOrchestrator:
             # Step 6: Extract branch name
             branch_name = f"claude/{task.id.lower()}"
             try:
-                async with self.browser_lock:
-                    if session_url:
-                        await browser.navigate(session_url)
-                        await asyncio.sleep(2.0)
-                    page_text = await browser.get_text("body")
+                page_text = await self._run_in_tab(browser, tab_index, browser.get_text, "body")
                 # Use browser's extract_branch_name method which looks for the correct pattern
                 extracted_branch = browser.extract_branch_name(page_text)
                 if extracted_branch:
@@ -439,7 +473,7 @@ class ParallelOrchestrator:
                 logger.debug(f"Could not extract branch name: {e}")
 
             # Step 7: Record session
-            final_url = session_url or await browser.get_current_url()
+            final_url = await self._run_in_tab(browser, tab_index, browser.get_current_url)
             self.session_manager.add_session(
                 session_id=session_id or f"session_{task.id}_{int(datetime.now().timestamp())}",
                 task_id=task.id,
@@ -507,7 +541,7 @@ class ParallelOrchestrator:
         self,
         task: Task,
         browser: BrowserController,
-        session_url: Optional[str],
+        tab_index: int,
         start_time: datetime,
         timeout: int = 600,
         check_interval: float = 10.0,
@@ -534,11 +568,7 @@ class ParallelOrchestrator:
 
         while time.time() - check_start < timeout:
             try:
-                async with self.browser_lock:
-                    if session_url:
-                        await browser.navigate(session_url)
-                        await asyncio.sleep(2.0)
-                    page_text = await browser.get_text("body")
+                page_text = await self._run_in_tab(browser, tab_index, browser.get_text, "body")
 
                 # Primary indicator: Check if "Create PR" button is enabled
                 if browser.is_create_pr_button_enabled(page_text):
